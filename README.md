@@ -1,2 +1,15 @@
-# ParallelProgramming-Project
-The final project of CSC14120 - Parallel Programming course, FIT-HCMUS.
+# Đồ án Cuối kỳ - Lập trình song song - 22KHMT
+## Sinh viên thực hiện: Nhóm 9
+| STT | MSSV     | Họ và tên         |
+| :-: | -------- | ----------------- |
+|  1  | 22127008 | Đặng Châu Anh     |
+|  2  | 22127170 | Trần Dịu Huyền    |
+|  3  | 22127359 | Chu Thúy Quỳnh    |
+
+## Kế hoạch thực hiện & phân công công việc
+
+## Tổ chức mã nguồn 
+
+## Hướng dẫn chạy chương trình
+
+## Video trình bày 
