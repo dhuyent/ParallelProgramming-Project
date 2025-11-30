@@ -1,22 +1,30 @@
-#include "../data_loader.h"
-#include "autoencoder.h"
+#include "../data_loader.h"      
+#include "autoencoder.h" 
+#include <iostream>  
+#include <vector>
 #include <chrono>
 #include <iomanip>
 
-int main() {
+int main(int argc, char** argv) {
     // 1. Load Data 
     cout << "--- Phase 1: CPU Baseline ---\n";
+    
     CIFAR10Dataset dataset("./data/cifar-10-batches-bin");
     dataset.load_data();
 
-    // 2. Hyperparameters [cite: 262]
+    // 2. Hyperparameters 
     int BATCH_SIZE = 32;
-    int EPOCHS = 5; // Để demo, PDF yêu cầu 20 nhưng CPU rất chậm
+    int EPOCHS = 5; // Demo, PDF yêu cầu 20
     float LR = 0.001f;
+
+    // Check tham số dòng lệnh (tùy chọn)
+    if (argc > 1) EPOCHS = atoi(argv[1]);
 
     Autoencoder model;
     
-    // 3. Training Loop [cite: 263]
+    // 3. Training Loop 
+    cout << "Start Training (" << EPOCHS << " epochs)..." << endl;
+
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         auto t_start = chrono::high_resolution_clock::now();
         float total_loss = 0.0f;
@@ -51,9 +59,9 @@ int main() {
             // In tiến độ (mỗi 10 batch)
             if (b % 10 == 0) {
                 cout << "\rEpoch " << epoch+1 << "/" << EPOCHS 
-                          << " [Batch " << b << "/" << num_batches << "]"
-                          << " Loss: " << fixed << setprecision(4) 
-                          << (batch_loss / BATCH_SIZE) << flush;
+                     << " [Batch " << b << "/" << num_batches << "]"
+                     << " Loss: " << fixed << setprecision(4) 
+                     << (batch_loss / BATCH_SIZE) << flush;
             }
         }
 
@@ -61,10 +69,10 @@ int main() {
         double duration = chrono::duration<double>(t_end - t_start).count();
         
         cout << "\nEpoch " << epoch+1 << " Done. Avg Loss: " << (total_loss/num_batches)
-                  << " Time: " << duration << "s\n";
+             << " Time: " << duration << "s\n";
     }
 
-    // 4. Save Model [cite: 268]
+    // 4. Save Model 
     model.save_weights("cpu_model.bin");
     return 0;
 }
