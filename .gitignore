@@ -1,0 +1,5 @@
+# data/       # Không upload dataset lên git
+models/     # Không upload file binary trọng số nặng
+lib/        # Không upload thư viện (nếu quá nặng)
+*.o         # Bỏ qua file object sau khi compile
+*.exe       # Bỏ qua file thực thi

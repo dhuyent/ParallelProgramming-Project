@@ -1,5 +1,7 @@
-# Đồ án Cuối kỳ - Lập trình song song - 22KHMT
-## Sinh viên thực hiện: Nhóm 9
+# Đồ án Cuối kỳ - Lập trình song song
+Lớp: 22KHMT
+
+Sinh viên thực hiện: Nhóm 6
 | STT | MSSV     | Họ và tên         |
 | :-: | -------- | ----------------- |
 |  1  | 22127008 | Đặng Châu Anh     |
