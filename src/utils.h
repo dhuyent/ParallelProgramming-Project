@@ -6,7 +6,7 @@
 
 using namespace std;
 
-// Kích thước ảnh CIFAR-10 [cite: 31]
+// Kích thước ảnh CIFAR-10
 const int IMG_WIDTH = 32;
 const int IMG_HEIGHT = 32;
 const int IMG_CHANNELS = 3;

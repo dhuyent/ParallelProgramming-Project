@@ -1,5 +1,6 @@
 # data/       # Không upload dataset lên git
 models/     # Không upload file binary trọng số nặng
 lib/        # Không upload thư viện (nếu quá nặng)
+.vscode/    # Bỏ qua cấu hình VSCode
 *.o         # Bỏ qua file object sau khi compile
 *.exe       # Bỏ qua file thực thi
