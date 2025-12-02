@@ -1,8 +1,10 @@
+#pragma once
 #include <vector>
 #include <string>
 #include <iostream>
 #include <cmath>
 #include <random>
+#include <chrono>
 
 using namespace std;
 
@@ -22,11 +24,23 @@ struct Tensor {
         data.resize(c * h * w, 0.0f);
     }
     
-    // Helper truy cập an toàn
     float& at(int c, int h, int w_idx) {
         return data[c * height * width + h * width + w_idx];
     }
     const float& at(int c, int h, int w_idx) const {
         return data[c * height * width + h * width + w_idx];
+    }
+};
+
+// Timer cho CPU 
+struct CpuTimer {
+    std::chrono::high_resolution_clock::time_point start_time;
+    std::chrono::high_resolution_clock::time_point end_time;
+
+    void Start() { start_time = std::chrono::high_resolution_clock::now(); }
+    void Stop() { end_time = std::chrono::high_resolution_clock::now(); }
+
+    float ElapsedSeconds() {
+        return std::chrono::duration<float>(end_time - start_time).count();
     }
 };

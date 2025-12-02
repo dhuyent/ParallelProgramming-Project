@@ -23,7 +23,7 @@ void CIFAR10Dataset::read_batch(const string& filename, vector<vector<float>>& i
     while (file.read(reinterpret_cast<char*>(buffer.data()), record_size)) {
         labels.push_back(buffer[0]);
         vector<float> img(3072);
-        for (int i = 0; i < 3072; ++i) img[i] = buffer[i + 1] / 255.0f; // Normalize [0,1] [cite: 240]
+        for (int i = 0; i < 3072; ++i) img[i] = buffer[i + 1] / 255.0f; // Normalize [0,1] 
         images.push_back(img);
     }
     file.close();

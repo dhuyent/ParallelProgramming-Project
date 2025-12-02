@@ -1,3 +1,4 @@
+#pragma once
 #include "cpu_layers.h"
 
 class Autoencoder {
@@ -14,9 +15,9 @@ public:
     Tensor forward(Tensor x);
     void backward(Tensor grad, float lr);
     
-    // Trích xuất đặc trưng (cho Phase 4 SVM) [cite: 259]
+    // Trích xuất đặc trưng (cho Phase 4 SVM) 
     vector<float> extract_features(Tensor x);
     
-    // Lưu trọng số [cite: 260]
+    // Lưu trọng số
     void save_weights(const string& filepath);
 };

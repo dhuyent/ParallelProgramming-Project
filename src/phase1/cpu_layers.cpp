@@ -33,7 +33,7 @@ Tensor Conv2D::forward(const Tensor& input) {
     int out_w = (input.width + 2 * pad - k_size) / stride + 1;
     Tensor output(out_c, out_h, out_w);
 
-    // Naive Convolution implementation [cite: 248]
+    // Naive Convolution implementation
     for (int o = 0; o < out_c; ++o) {
         for (int y = 0; y < out_h; ++y) {
             for (int x = 0; x < out_w; ++x) {
@@ -74,7 +74,7 @@ Tensor Conv2D::backward(const Tensor& grad_output, float learning_rate) {
     int out_h = grad_output.height;
     int out_w = grad_output.width;
 
-    // Tính gradient [cite: 258]
+    // Tính gradient 
     for (int o = 0; o < out_c; ++o) {
         for (int y = 0; y < out_h; ++y) {
             for (int x = 0; x < out_w; ++x) {
@@ -107,14 +107,14 @@ Tensor Conv2D::backward(const Tensor& grad_output, float learning_rate) {
         }
     }
 
-    // Update weights (SGD) [cite: 321]
+    // Update weights (SGD) 
     for (size_t i = 0; i < weights.size(); ++i) weights[i] -= learning_rate * grad_w[i];
     for (size_t i = 0; i < biases.size(); ++i) biases[i] -= learning_rate * grad_b[i];
 
     return grad_input;
 }
 
-// --- ReLU Implementation --- [cite: 249]
+// --- ReLU Implementation --- 
 Tensor ReLU::forward(const Tensor& input) {
     input_cache = input;
     Tensor output = input;
@@ -134,7 +134,7 @@ Tensor ReLU::backward(const Tensor& grad_output, float learning_rate) {
     return grad_input;
 }
 
-// --- MaxPool Implementation --- [cite: 250]
+// --- MaxPool Implementation --- 
 MaxPool2D::MaxPool2D(int size, int s) : pool_size(size), stride(s), input_shape(0,0,0) {}
 
 Tensor MaxPool2D::forward(const Tensor& input) {
@@ -182,7 +182,7 @@ Tensor MaxPool2D::backward(const Tensor& grad_output, float learning_rate) {
     return grad_input;
 }
 
-// --- Upsample Implementation --- [cite: 251]
+// --- Upsample Implementation ---
 UpSample2D::UpSample2D(int scale) : scale(scale), input_shape(0,0,0) {}
 
 Tensor UpSample2D::forward(const Tensor& input) {
@@ -215,7 +215,7 @@ Tensor UpSample2D::backward(const Tensor& grad_output, float learning_rate) {
     return grad_input;
 }
 
-// --- Loss Functions --- [cite: 252]
+// --- Loss Functions --- 
 float mse_loss(const Tensor& pred, const Tensor& target) {
     float sum = 0.0f;
     for (size_t i = 0; i < pred.data.size(); ++i) {
@@ -229,7 +229,6 @@ Tensor mse_loss_grad(const Tensor& pred, const Tensor& target) {
     Tensor grad(pred.channels, pred.height, pred.width);
     float n = (float)pred.data.size();
     for (size_t i = 0; i < pred.data.size(); ++i) {
-        // d(MSE)/dx = 2/N * (x - target)
         grad.data[i] = 2.0f * (pred.data[i] - target.data[i]) / n;
     }
     return grad;
