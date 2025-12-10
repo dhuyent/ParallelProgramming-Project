@@ -1,10 +1,9 @@
 import base64
 
-input_file = "autoencoder.png" # Sửa tên file image nếu cần
-output_file = "autoencoder_base64.txt"
+file_prefix = "autoencoder" # Sửa tên file image nếu cần
 
-with open(input_file, "rb") as f: 
+with open(f"{file_prefix}.jpg", "rb") as f: 
     data = base64.b64encode(f.read()).decode()
 
-with open(output_file, "w") as out:
+with open(f"{file_prefix}_base64.txt", "w") as out:
     out.write(data)
