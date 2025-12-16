@@ -1,125 +1,108 @@
 #include "svm_wrapper.h"
 #include <iostream>
-#include <cmath>
+#include <fstream>
+#include <vector>
+#include <memory>
 
-SVMClassifier::SVMClassifier() : model(nullptr) {
-    // 1. Cấu hình mặc định theo yêu cầu của bạn
-    param.svm_type = C_SVC;     // Classification
-    param.kernel_type = RBF;    // Kernel RBF
-    param.degree = 3;
-    param.gamma = 0;            // Sẽ tự tính nếu người dùng không set (1/num_features)
-    param.coef0 = 0;
-    param.nu = 0.5;
-    param.cache_size = 100;
-    param.C = 10.0;             // Yêu cầu: C = 10
-    param.eps = 1e-3;
-    param.p = 0.1;
-    param.shrinking = 1;
-    param.probability = 0;
-    param.nr_weight = 0;
-    param.weight_label = NULL;
-    param.weight = NULL;
+// Include header
+#include <thundersvm/model/svc.h> 
+#include <thundersvm/dataset.h>
+#include <thundersvm/util/metric.h>
+
+SVMClassifier::SVMClassifier() {
+    auto svc_ptr = std::make_shared<SVC>();
+    model = std::static_pointer_cast<void>(svc_ptr);
+    C_param = 10.0f;
+    gamma_param = 0.0f;
 }
 
-SVMClassifier::~SVMClassifier() {
-    if(model) svm_free_and_destroy_model(&model);
-    // data_pool và x_space tự giải phóng nhờ std::vector
+SVMClassifier::~SVMClassifier() {}
+
+std::shared_ptr<SVC> get_model(std::shared_ptr<void> model_void) {
+    return std::static_pointer_cast<SVC>(model_void);
 }
 
 void SVMClassifier::set_parameters(double C, double gamma) {
-    param.C = C;
-    param.gamma = gamma;
+    C_param = (float)C;
+    gamma_param = (float)gamma;
 }
 
 void SVMClassifier::train(const std::vector<std::vector<float>>& features, const std::vector<int>& labels) {
     if (features.empty()) return;
 
-    int num_samples = (int)features.size();
-    int num_dims = (int)features[0].size();
+    int n_samples = features.size();
+    int n_features = features[0].size();
 
-    // Setup Gamma = auto (1 / num_features) nếu chưa set
-    if (param.gamma == 0) {
-        param.gamma = 1.0 / num_dims;
-        std::cout << "[SVM] Gamma set to auto: " << param.gamma << "\n";
+    std::vector<float> dense_data;
+    dense_data.reserve(n_samples * n_features);
+    for(const auto& row : features) {
+        dense_data.insert(dense_data.end(), row.begin(), row.end());
     }
-
-    // 2. Chuyển đổi dữ liệu sang định dạng LIBSVM (Sparse format)
-    // LIBSVM cần mảng các svm_node. Mỗi vector kết thúc bằng index = -1
     
-    prob.l = num_samples;
-    prob.y = new double[num_samples];
-    prob.x = new svm_node*[num_samples];
+    std::vector<float> float_labels(n_samples);
+    for(int i=0; i<n_samples; ++i) float_labels[i] = (float)labels[i];
 
-    // Cấp phát vùng nhớ cho toàn bộ node
-    // Mỗi sample cần (num_dims + 1) node (cộng 1 cho node kết thúc -1)
-    data_pool.resize(num_samples * (num_dims + 1));
+    DataSet dataset;
+    dataset.load_from_dense(n_samples, n_features, dense_data.data(), float_labels.data());
+
+    SvmParam param_struct;
+    param_struct.svm_type = SvmParam::C_SVC; 
+    param_struct.kernel_type = SvmParam::RBF; 
+    param_struct.C = C_param;
+    if (gamma_param > 0) param_struct.gamma = gamma_param;
+    else param_struct.gamma = 1.0 / n_features; 
     
-    for (int i = 0; i < num_samples; ++i) {
-        prob.y[i] = (double)labels[i];
-        prob.x[i] = &data_pool[i * (num_dims + 1)];
-
-        for (int j = 0; j < num_dims; ++j) {
-            data_pool[i * (num_dims + 1) + j].index = j + 1; // Index bắt đầu từ 1
-            data_pool[i * (num_dims + 1) + j].value = (double)features[i][j];
-        }
-        // Node kết thúc
-        data_pool[i * (num_dims + 1) + num_dims].index = -1;
-        data_pool[i * (num_dims + 1) + num_dims].value = 0;
-    }
-
-    // 3. Huấn luyện
-    std::cout << "[SVM] Training started with C=" << param.C << ", Gamma=" << param.gamma << "...\n";
-    const char* error_msg = svm_check_parameter(&prob, &param);
-    if (error_msg) {
-        std::cerr << "[SVM Error] Parameters: " << error_msg << "\n";
-        return;
-    }
-
-    model = svm_train(&prob, &param);
-    std::cout << "[SVM] Training finished.\n";
-
-    // Cleanup pointer tạm (data_pool vẫn giữ dữ liệu thật)
-    delete[] prob.y;
-    delete[] prob.x;
+    auto svc = get_model(model);
+    std::cout << "[ThunderSVM] Training on GPU (Batch Mode)...\n";
+    svc->train(dataset, param_struct);
+    std::cout << "[ThunderSVM] Training finished.\n";
 }
 
-double SVMClassifier::predict(const std::vector<float>& feature) {
-    if (!model) return -1;
+std::vector<double> SVMClassifier::predict_batch(const std::vector<std::vector<float>>& features) {
+    if(features.empty()) return {};
     
-    // Convert single vector to svm_node array
-    std::vector<svm_node> nodes(feature.size() + 1);
-    for (size_t i = 0; i < feature.size(); ++i) {
-        nodes[i].index = (int)i + 1;
-        nodes[i].value = (double)feature[i];
-    }
-    nodes[feature.size()].index = -1;
+    int n_samples = features.size();
+    int n_features = features[0].size();
 
-    return svm_predict(model, nodes.data());
+    // 1. Chuyển đổi dữ liệu sang dạng phẳng (Flatten)
+    std::vector<float> dense_data;
+    dense_data.reserve(n_samples * n_features);
+    for(const auto& row : features) {
+        dense_data.insert(dense_data.end(), row.begin(), row.end());
+    }
+
+    // 2. Tạo Dataset (Labels giả vì ta đang predict)
+    std::vector<float> dummy_labels(n_samples, 0.0f);
+    DataSet dataset;
+    dataset.load_from_dense(n_samples, n_features, dense_data.data(), dummy_labels.data());
+
+    // 3. Dự đoán toàn bộ một lần (Batch Size lớn để tận dụng GPU)
+    auto svc = get_model(model);
+    return svc->predict(dataset.instances(), 1000); // Batch size 1000
 }
 
 void SVMClassifier::save_model(const std::string& filename) {
-    if (svm_save_model(filename.c_str(), model)) {
-        std::cerr << "[SVM Error] Could not save model to " << filename << "\n";
-    } else {
-        std::cout << "[SVM] Model saved to " << filename << "\n";
-    }
+    auto svc = get_model(model);
+    svc->save_to_file(filename);
+    std::cout << "[ThunderSVM] Model saved to " << filename << "\n";
 }
 
 bool SVMClassifier::load_model(const std::string& filename) {
-    if(model) svm_free_and_destroy_model(&model);
-    model = svm_load_model(filename.c_str());
-    if (!model) {
-        std::cerr << "[SVM Error] Could not load model " << filename << "\n";
+    try {
+        auto svc = get_model(model);
+        svc->load_from_file(filename);
+        return true;
+    } catch (...) {
         return false;
     }
-    return true;
 }
 
 double SVMClassifier::evaluate(const std::vector<std::vector<float>>& features, const std::vector<int>& labels) {
+    // Hàm này đã dùng Batch rồi, rất tốt
+    std::vector<double> preds = predict_batch(features);
     int correct = 0;
-    for (size_t i = 0; i < features.size(); ++i) {
-        double pred = predict(features[i]);
-        if ((int)pred == labels[i]) correct++;
+    for(size_t i=0; i<preds.size(); ++i) {
+        if((int)preds[i] == labels[i]) correct++;
     }
-    return (double)correct / features.size() * 100.0;
+    return (double)correct / preds.size() * 100.0;
 }
