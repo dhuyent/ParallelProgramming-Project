@@ -10,14 +10,17 @@ public:
     UpSample2D *u1, *u2;
 
     Autoencoder();
-    ~Autoencoder(); // Cleanup memory
+    ~Autoencoder();
 
     Tensor forward(Tensor x);
-    void backward(Tensor grad, float lr);
+    void backward(Tensor grad);
     
-    // Trích xuất đặc trưng (cho Phase 4 SVM) 
+    // Update weights cho toàn bộ mạng
+    void update(float lr);
+
     vector<float> extract_features(Tensor x);
     
-    // Lưu trọng số
+    // Lưu/Load weights
     void save_weights(const string& filepath);
+    void load_weights(const string& filepath);
 };

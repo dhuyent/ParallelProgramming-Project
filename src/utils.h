@@ -5,10 +5,11 @@
 #include <cmath>
 #include <random>
 #include <chrono>
+#include <fstream>
 
 using namespace std;
 
-// Kích thước ảnh CIFAR-10
+// Kích thước ảnh CIFAR-10 
 const int IMG_WIDTH = 32;
 const int IMG_HEIGHT = 32;
 const int IMG_CHANNELS = 3;
@@ -34,13 +35,26 @@ struct Tensor {
 
 // Timer cho CPU 
 struct CpuTimer {
-    std::chrono::high_resolution_clock::time_point start_time;
-    std::chrono::high_resolution_clock::time_point end_time;
+    chrono::high_resolution_clock::time_point start_time;
+    chrono::high_resolution_clock::time_point end_time;
 
-    void Start() { start_time = std::chrono::high_resolution_clock::now(); }
-    void Stop() { end_time = std::chrono::high_resolution_clock::now(); }
+    void Start() { start_time = chrono::high_resolution_clock::now(); }
+    void Stop() { end_time = chrono::high_resolution_clock::now(); }
 
     float ElapsedSeconds() {
-        return std::chrono::duration<float>(end_time - start_time).count();
+        return chrono::duration<float>(end_time - start_time).count();
     }
 };
+
+// Đo Memory Usage (Linux/Colab)
+inline long get_memory_usage() {
+    ifstream file("/proc/self/status");
+    string line;
+    while (getline(file, line)) {
+        if (line.substr(0, 6) == "VmRSS:") {
+            string val = line.substr(7);
+            return stol(val); 
+        }
+    }
+    return 0; 
+}

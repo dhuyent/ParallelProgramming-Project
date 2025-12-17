@@ -6,14 +6,14 @@
 CIFAR10Dataset::CIFAR10Dataset(const string& path) : data_dir(path) {}
 
 void CIFAR10Dataset::load_data() {
-    for (int i = 1; i <= 5; ++i) {
+    for (int i = 1; i <= 1; ++i) { // Cut down on training data 
         read_batch(data_dir + "/data_batch_" + to_string(i) + ".bin", train_images, train_labels);
     }
     read_batch(data_dir + "/test_batch.bin", test_images, test_labels);
     cout << "[Data] Loaded " << train_images.size() << " train, " << test_images.size() << " test images.\n";
 }
 
-void CIFAR10Dataset::read_batch(const string& filename, vector<vector<float>>& images, vector<int>& labels) {
+void CIFAR10Dataset::read_batch(const string& filename, vector<Tensor>& images, vector<int>& labels) {
     ifstream file(filename, ios::binary);
     if (!file.is_open()) { cerr << "Cannot open " << filename << endl; exit(1); }
 
@@ -22,26 +22,38 @@ void CIFAR10Dataset::read_batch(const string& filename, vector<vector<float>>& i
 
     while (file.read(reinterpret_cast<char*>(buffer.data()), record_size)) {
         labels.push_back(buffer[0]);
-        vector<float> img(3072);
-        for (int i = 0; i < 3072; ++i) img[i] = buffer[i + 1] / 255.0f; // Normalize [0,1] 
+        Tensor img(3, 32, 32);
+        for (int i = 0; i < 3072; ++i) {
+            img.data[i] = static_cast<float>(buffer[i + 1]) / 255.0f;
+        }
         images.push_back(img);
     }
     file.close();
 }
 
 void CIFAR10Dataset::shuffle_train_data() {
-    random_device rd; mt19937 g(rd());
-    vector<size_t> p(train_images.size());
-    for(size_t i=0; i<p.size(); i++) p[i] = i;
-    shuffle(p.begin(), p.end(), g);
-    
-    vector<vector<float>> img_new; img_new.reserve(train_images.size());
-    vector<int> lbl_new; lbl_new.reserve(train_labels.size());
-    
-    for(size_t i : p) {
-        img_new.push_back(train_images[i]);
-        lbl_new.push_back(train_labels[i]);
+    if (train_images.empty()) return;
+    static random_device rd;
+    static mt19937 g(rd());
+
+    for (size_t i = train_images.size() - 1; i > 0; --i) {
+        uniform_int_distribution<size_t> dist(0, i);
+        size_t j = dist(g);
+        swap(train_images[i], train_images[j]);
+        swap(train_labels[i], train_labels[j]);
     }
-    train_images = move(img_new);
-    train_labels = move(lbl_new);
+}
+
+Batch CIFAR10Dataset::get_batch(size_t start_idx, size_t batch_size) {
+    Batch batch;
+    size_t end_idx = min(start_idx + batch_size, train_images.size());
+    
+    batch.inputs.reserve(end_idx - start_idx);
+    batch.labels.reserve(end_idx - start_idx);
+
+    for (size_t i = start_idx; i < end_idx; ++i) {
+        batch.inputs.push_back(train_images[i]);
+        batch.labels.push_back(train_labels[i]);
+    }
+    return batch;
 }
