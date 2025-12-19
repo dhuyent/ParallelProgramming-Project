@@ -67,13 +67,7 @@ int main() {
     
     // Logic kiểm tra file model thông minh hơn
     std::string model_path = "ae_final.bin";
-    std::ifstream fcheck(model_path);
-    if (!fcheck.good()) {
-        fcheck.close();
-        model_path = "ae_best_model.bin"; // Thử tìm file backup
-    } else {
-        fcheck.close();
-    }
+
     
     if (!ae.load_weights(model_path)) {
         std::cerr << "Failed to load Autoencoder weights from " << model_path << "!\n"; 

@@ -2,7 +2,6 @@
 // Compile with nvcc: nvcc -O2 -arch=sm_70 train.cu gpu_autoencoder.cu kernels.cu data_loader.cpp -o train_ae
 
 #include "gpu_autoencoder.cuh"
-#include "kernels.cuh"
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cstdlib>
@@ -31,10 +30,12 @@ GPUAutoencoder::GPUAutoencoder()
   d_g_w_dec1(nullptr), d_g_b_dec1(nullptr),
   d_g_w_dec2(nullptr), d_g_b_dec2(nullptr),
   d_g_w_dec3(nullptr), d_g_b_dec3(nullptr),
-  d_grad_out(nullptr), d_grad_up2(nullptr), d_grad_dec_act2(nullptr),
+  d_g_out(nullptr),
+  d_grad_up2(nullptr), d_grad_dec_act2(nullptr),
   d_grad_up1(nullptr), d_grad_dec_act1(nullptr), d_grad_latent(nullptr),
   d_grad_pool2(nullptr), d_grad_act2(nullptr), d_grad_pool1(nullptr),
   d_grad_act1(nullptr),
+  d_loss_accum(nullptr), // <--- UPDATE: Khởi tạo biến thành viên
   device_allocated_(false)
 {
 }
@@ -137,6 +138,9 @@ void GPUAutoencoder::alloc_activations_and_buffers() {
     malloc_device_ptr(&d_up2, s_up2);
     malloc_device_ptr(&d_out, s_out);
 
+    // <--- UPDATE: Cấp phát bộ nhớ cho d_loss_accum một lần duy nhất ở đây
+    malloc_device_ptr(&d_loss_accum, sizeof(float), true);
+
     malloc_device_ptr_int(&d_pool1_idx, (256*16*16)*sizeof(int));
     malloc_device_ptr_int(&d_pool2_idx, (128*8*8)*sizeof(int));
 }
@@ -153,8 +157,9 @@ void GPUAutoencoder::alloc_grads_on_device() {
     alloc_zero(&d_g_w_dec2, h_w_dec2.size());   alloc_zero(&d_g_b_dec2, h_b_dec2.size());
     alloc_zero(&d_g_w_dec3, h_w_dec3.size());   alloc_zero(&d_g_b_dec3, h_b_dec3.size());
 
-    // Alloc gradients buffers (kích thước tương tự activations)
-    malloc_device_ptr(&d_grad_out, 3*32*32*sizeof(float), true);
+    // Alloc gradients buffers
+    malloc_device_ptr(&d_g_out, 3*32*32*sizeof(float), true);
+    
     malloc_device_ptr(&d_grad_up2, 256*32*32*sizeof(float));
     malloc_device_ptr(&d_grad_dec_act2, 256*16*16*sizeof(float));
     malloc_device_ptr(&d_grad_up1, 128*16*16*sizeof(float));
@@ -255,7 +260,7 @@ bool GPUAutoencoder::load_weights(const std::string& filename) {
 }
 
 // --------------------------------------------------------------------------
-// CORE OPERATIONS (Moved from forward.cu / backward.cu)
+// CORE OPERATIONS
 // --------------------------------------------------------------------------
 
 // 1. FORWARD PASS (Train)
@@ -298,19 +303,19 @@ float GPUAutoencoder::forward(float* d_input_sample, float* d_target_sample) {
 
     // Compute Loss
     int total_out = 3 * 32 * 32;
-    CHECK(cudaMemset(d_grad_out, 0, total_out * sizeof(float)));
+    // Reset gradient đầu ra
+    CHECK(cudaMemset(d_g_out, 0, total_out * sizeof(float))); 
     
-    // Temp buffer for single scalar loss
-    float* d_loss_accum = nullptr;
-    CHECK(cudaMalloc(&d_loss_accum, sizeof(float)));
-    CHECK(cudaMemset(d_loss_accum, 0, sizeof(float)));
+    // <--- UPDATE: Bỏ cudaMalloc ở đây, sử dụng d_loss_accum đã cấp phát sẵn
+    // Rất quan trọng: Phải reset giá trị cũ về 0
+    CHECK(cudaMemset(d_loss_accum, 0, sizeof(float))); 
     
-    launch_mse_loss_and_grad(d_out, d_target_sample, d_grad_out, d_loss_accum, total_out);
+    launch_mse_loss_and_grad(d_out, d_target_sample, d_g_out, d_loss_accum, total_out);
     CHECK(cudaDeviceSynchronize());
     
     float h_loss = 0.0f;
     CHECK(cudaMemcpy(&h_loss, d_loss_accum, sizeof(float), cudaMemcpyDeviceToHost));
-    CHECK(cudaFree(d_loss_accum));
+    // <--- UPDATE: Không gọi cudaFree ở đây nữa
 
     return h_loss;
 }
@@ -319,8 +324,8 @@ float GPUAutoencoder::forward(float* d_input_sample, float* d_target_sample) {
 void GPUAutoencoder::backward() {
     const int k = KERNEL;
     // Dec3
-    launch_conv2d_weight_grad_naive(d_up2, d_grad_out, d_g_w_dec3, d_g_b_dec3, 256, 32, 32, 3, k);
-    launch_conv2d_input_grad_naive(d_grad_out, d_w_dec3, d_grad_up2, 256, 32, 32, 3, k);
+    launch_conv2d_weight_grad_naive(d_up2, d_g_out, d_g_w_dec3, d_g_b_dec3, 256, 32, 32, 3, k);
+    launch_conv2d_input_grad_naive(d_g_out, d_w_dec3, d_grad_up2, 256, 32, 32, 3, k);
 
     // Dec2
     launch_upsample_backward(d_grad_up2, d_grad_dec_act2, 256, 16, 16);
@@ -411,6 +416,9 @@ void GPUAutoencoder::free_all() {
     free_ptr(d_dec_act1); free_ptr(d_up1); free_ptr(d_dec_act2);
     free_ptr(d_up2);   free_ptr(d_out);
 
+    // <--- UPDATE: Giải phóng d_loss_accum
+    free_ptr(d_loss_accum);
+
     free_int(d_pool1_idx); free_int(d_pool2_idx);
 
     free_ptr(d_g_w_conv1); free_ptr(d_g_b_conv1);
@@ -419,7 +427,8 @@ void GPUAutoencoder::free_all() {
     free_ptr(d_g_w_dec2);  free_ptr(d_g_b_dec2);
     free_ptr(d_g_w_dec3);  free_ptr(d_g_b_dec3);
 
-    free_ptr(d_grad_out); free_ptr(d_grad_up2); free_ptr(d_grad_dec_act2);
+    free_ptr(d_g_out); 
+    free_ptr(d_grad_up2); free_ptr(d_grad_dec_act2);
     free_ptr(d_grad_up1); free_ptr(d_grad_dec_act1); free_ptr(d_grad_latent);
     free_ptr(d_grad_pool2); free_ptr(d_grad_act2); free_ptr(d_grad_pool1);
     free_ptr(d_grad_act1);
