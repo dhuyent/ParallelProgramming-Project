@@ -198,7 +198,8 @@ __global__ void conv2d_weight_grad_naive_kernel(const float* input, const float*
     }
     int tmp = idx;
     int kw = tmp % k; tmp /= k;
-    int kh = tmp % k; tmp /= kh? k : 1; // careful: previous line bug-prone; easier recompute cleanly below
+    int kh = tmp % k; 
+    tmp /= k; // careful: previous line bug-prone; easier recompute cleanly below
     // Recompute properly:
     tmp = idx;
     kw = tmp % k; tmp /= k;
@@ -293,14 +294,14 @@ void launch_conv2d_forward_naive(const float* input, const float* weights, const
     int block = 256;
     int grid = (total + block - 1) / block;
     conv2d_forward_naive_kernel<<<grid, block>>>(input, weights, bias, output, inC, inH, inW, outC, k);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_relu_inplace(float* x, int N) {
     int block = 256;
     int grid = (N + block - 1) / block;
     relu_inplace_kernel<<<grid, block>>>(x, N);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_maxpool2x2_forward(const float* in, float* out, int* max_idx, int C, int H, int W) {
@@ -308,7 +309,7 @@ void launch_maxpool2x2_forward(const float* in, float* out, int* max_idx, int C,
     int block = 256;
     int grid = (total + block - 1) / block;
     maxpool2x2_forward_kernel<<<grid, block>>>(in, out, max_idx, C, H, W);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_upsample_nn_forward(const float* in, float* out, int inC, int inH, int inW) {
@@ -316,7 +317,7 @@ void launch_upsample_nn_forward(const float* in, float* out, int inC, int inH, i
     int block = 256;
     int grid = (total + block - 1) / block;
     upsample_nn_forward_kernel<<<grid, block>>>(in, out, inC, inH, inW);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_mse_loss_and_grad(const float* pred, const float* target, float* grad, float* loss_accum, int N) {
@@ -324,7 +325,7 @@ void launch_mse_loss_and_grad(const float* pred, const float* target, float* gra
     int grid = (N + block - 1) / block;
     size_t shmem = block * sizeof(float);
     mse_loss_and_grad_kernel<<<grid, block, shmem>>>(pred, target, grad, loss_accum, N);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 // Backward wrappers
@@ -333,7 +334,7 @@ void launch_relu_backward(const float* grad_out, const float* act, float* grad_i
     int block = 256;
     int grid = (N + block - 1) / block;
     relu_backward_kernel<<<grid, block>>>(grad_out, act, grad_in, N);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_maxpool2x2_backward(const float* grad_out, float* grad_in, const int* max_idx, int C, int H, int W) {
@@ -341,7 +342,7 @@ void launch_maxpool2x2_backward(const float* grad_out, float* grad_in, const int
     int block = 256;
     int grid = (total + block - 1) / block;
     maxpool2x2_backward_kernel<<<grid, block>>>(grad_out, grad_in, max_idx, C, H, W);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_upsample_backward(const float* grad_out, float* grad_in, int inC, int inH, int inW) {
@@ -349,7 +350,7 @@ void launch_upsample_backward(const float* grad_out, float* grad_in, int inC, in
     int block = 256;
     int grid = (total + block - 1) / block;
     upsample_backward_kernel<<<grid, block>>>(grad_out, grad_in, inC, inH, inW);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_conv2d_weight_grad_naive(const float* input, const float* grad_out,
@@ -359,11 +360,11 @@ void launch_conv2d_weight_grad_naive(const float* input, const float* grad_out,
     int block = 256;
     int gridW = (totalW + block - 1) / block;
     conv2d_weight_grad_naive_kernel<<<gridW, block>>>(input, grad_out, grad_weights, grad_bias, inC, inH, inW, outC, k);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
     // bias grads
     int gridB = (outC + block - 1) / block;
     conv2d_bias_grad_kernel<<<gridB, block>>>(grad_out, grad_bias, outC, inH, inW);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_conv2d_input_grad_naive(const float* grad_out, const float* weights,
@@ -372,19 +373,19 @@ void launch_conv2d_input_grad_naive(const float* grad_out, const float* weights,
     int block = 256;
     int grid = (totalIn + block - 1) / block;
     conv2d_input_grad_naive_kernel<<<grid, block>>>(grad_out, weights, grad_input, inC, inH, inW, outC, k);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_update_weights_on_device(float* weights, float* grads, int N, float lr, int batch_size) {
     int block = 256;
     int grid = (N + block - 1) / block;
     update_weights_on_device_kernel<<<grid, block>>>(weights, grads, N, lr, batch_size);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }
 
 void launch_update_bias_on_device(float* bias, float* grads, int N, float lr, int batch_size) {
     int block = 256;
     int grid = (N + block - 1) / block;
     update_bias_on_device_kernel<<<grid, block>>>(bias, grads, N, lr, batch_size);
-    CUDA_CHECK(cudaGetLastError());
+    CHECK(cudaGetLastError());
 }

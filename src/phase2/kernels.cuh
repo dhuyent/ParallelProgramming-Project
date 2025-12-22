@@ -8,15 +8,15 @@
 #define KERNELS_CUH
 
 // Simple CUDA check if not defined elsewhere
-#ifndef CUDA_CHECK
+#ifndef CHECK
 #include <cstdio>
-inline void cuda_check(cudaError_t code, const char *file, int line, bool abort=true) {
+inline void CHECK(cudaError_t code, const char *file, int line, bool abort=true) {
     if (code != cudaSuccess) {
         std::fprintf(stderr,"CUDA Error: %s %s:%d\n", cudaGetErrorString(code), file, line);
         if (abort) std::exit(code);
     }
 }
-#define CUDA_CHECK(x) cuda_check((x), __FILE__, __LINE__)
+#define CHECK(x) CHECK((x), __FILE__, __LINE__)
 #endif
 
 // -------------------- Forward wrappers --------------------

@@ -33,7 +33,7 @@ void print_gpu_memory_usage() {
 }
 
 int main(int argc, char** argv) {
-    std::string cifar_dir = "./cifar-10-batches-bin";
+    std::string cifar_dir = "./data/cifar-10-batches-bin";
     int epochs = 20;           
     int batch_size = 64;       
     float learning_rate = 0.001f;     
@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
     CHECK(cudaEventDestroy(epoch_start)); CHECK(cudaEventDestroy(epoch_end));
     CHECK(cudaEventDestroy(total_start)); CHECK(cudaEventDestroy(total_end));
 
-    model.save_weights("ae_final.bin");
+    model.save_weights("output/gpu_basic_model.bin");
     
     return 0;
 }

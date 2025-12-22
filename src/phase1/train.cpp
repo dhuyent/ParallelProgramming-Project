@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     int EPOCHS = 20;     
     float LR = 0.001f;
 
-    if (argc > 1) EPOCHS = atoi(argv[1]);
+    // if (argc > 1) EPOCHS = atoi(argv[1]);
 
     cout << "Training Settings:\n";
     cout << "- Batch Size: " << BATCH_SIZE << "\n";
@@ -90,57 +90,63 @@ int main(int argc, char** argv) {
     cout << "\n[Start Training]...\n";
     total_timer.Start();
 
-    // 4. Training Loop 
+    // 4. Training Loop
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
         epoch_timer.Start();
         float total_loss = 0.0f;
 
-        // Shuffle data đầu mỗi epoch 
+        // Shuffle data đầu mỗi epoch
         dataset.shuffle_train_data();
 
-        // Tính số batch
-        int num_batches = (dataset.train_images.size() + BATCH_SIZE - 1) / BATCH_SIZE;
+        int N = static_cast<int>(dataset.train_images.size());
+        int num_batches = (N + BATCH_SIZE - 1) / BATCH_SIZE;
 
         for (int b = 0; b < num_batches; ++b) {
-            Batch batch = dataset.get_batch(b * BATCH_SIZE, BATCH_SIZE);
+            int start = b * BATCH_SIZE;
+            int end = min(start + BATCH_SIZE, N);
+            int bs = end - start;
+
             float batch_loss = 0.0f;
 
-            // Xử lý từng ảnh trong batch
-            for (const Tensor& img : batch.inputs) {
+            // Xử lý từng ảnh trong batch (duyệt trực tiếp, không dùng Batch struct)
+            for (int idx = start; idx < end; ++idx) {
+                const Tensor& img = dataset.train_images[idx];
+
                 // Forward
                 Tensor output = model.forward(img);
 
                 // Loss
                 float loss = mse_loss(output, img);
                 batch_loss += loss;
-                
-                // Backward
+
+                // Backward (tích lũy grad)
                 Tensor grad = mse_loss_grad(output, img);
                 model.backward(grad);
             }
-            
-            // Cập nhật weights sau mỗi batch
-            float effective_lr = LR / batch.inputs.size(); 
+
+            // Cập nhật weights sau mỗi batch (mean-grad)
+            float effective_lr = LR / (float)bs;
             model.update(effective_lr);
 
             // Tính loss trung bình cho batch
-            float avg_batch_loss = batch_loss / batch.inputs.size();
+            float avg_batch_loss = batch_loss / (float)bs;
             total_loss += avg_batch_loss;
 
             // Tracking
             if ((b + 1) % 10 == 0 || b == 0) {
-                cout << "\rEpoch " << epoch + 1 << "/" << EPOCHS 
+                cout << "\rEpoch " << epoch + 1 << "/" << EPOCHS
                      << " [Batch " << b + 1 << "/" << num_batches << "] "
                      << "Loss: " << fixed << setprecision(5) << avg_batch_loss << flush;
             }
         }
+
         epoch_timer.Stop();
-        
+
         long mem_usage = get_memory_usage() / 1024;
-        
+
         cout << "\nEpoch " << epoch + 1 << " Done. "
-             << "Avg Loss: " << (total_loss / num_batches) 
-             << " | Time: " << epoch_timer.ElapsedSeconds() << "s" 
+             << "Avg Loss: " << (total_loss / num_batches)
+             << " | Time: " << epoch_timer.ElapsedSeconds() << "s"
              << " | Mem: " << mem_usage << " MB" << endl;
     }
 

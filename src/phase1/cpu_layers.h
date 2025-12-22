@@ -6,23 +6,16 @@ class Conv2D {
 public:
     int in_c, out_c, k_size, stride, pad;
     vector<float> weights, biases;
-    
     // Tích lũy gradient cho cả batch
     vector<float> accum_grad_w; 
     vector<float> accum_grad_b;
     
-    Tensor input_cache;
-
+    const Tensor* input_cache_ptr;
     Conv2D(int in, int out, int k=3, int s=1, int p=1);
     void init_weights();
-    
-    // Xóa gradient cũ đầu mỗi batch
-    void clear_grads();
-    
-    void update_weights(float lr); 
-
     Tensor forward(const Tensor& input);
     Tensor backward(const Tensor& grad_out); 
+    void update_weights(float lr); 
 };
 
 // ReLU

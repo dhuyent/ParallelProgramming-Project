@@ -7,20 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h> // Bắt buộc để dùng cudaError_t trong macro
-
-// --- MACRO CHECK ERROR ---
-// Định nghĩa tại đây để tất cả các file include header này đều dùng được
-#ifndef CHECK
-#define CHECK(call) \
-    { \
-        const cudaError_t error = call; \
-        if (error != cudaSuccess) { \
-            fprintf(stderr, "Error: %s:%d, ", __FILE__, __LINE__); \
-            fprintf(stderr, "code: %d, reason: %s\n", error, cudaGetErrorString(error)); \
-            exit(EXIT_FAILURE); \
-        } \
-    }
-#endif
+#include "kernels.cuh"
 
 class GPUAutoencoder {
 public:
@@ -98,12 +85,16 @@ public:
     float *d_g_w_dec3,  *d_g_b_dec3;
 
     // Device Gradients - Flow (GPU)
-    float *d_grad_out;
+    float *d_g_out; // <--- ĐÃ SỬA: Đổi tên từ d_grad_out -> d_g_out
+    
     float *d_grad_up2, *d_grad_dec_act2;
     float *d_grad_up1, *d_grad_dec_act1;
     float *d_grad_latent;
     float *d_grad_pool2, *d_grad_act2;
     float *d_grad_pool1, *d_grad_act1;
+
+    // Optimization Buffers
+    float *d_loss_accum; // <--- MỚI THÊM: Biến đệm để tính Loss (tránh cudaMalloc liên tục)
 
 private:
     bool device_allocated_;
