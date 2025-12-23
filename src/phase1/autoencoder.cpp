@@ -32,39 +32,69 @@ Autoencoder::~Autoencoder() {
     delete c5;
 }
 
-Tensor Autoencoder::forward(Tensor x) {
-    x = p1->forward(r1->forward(c1->forward(x)));
-    x = p2->forward(r2->forward(c2->forward(x)));
-    x = u1->forward(r3->forward(c3->forward(x)));
-    x = u2->forward(r4->forward(c4->forward(x)));
-    x = c5->forward(x);
-    return x;
+Tensor Autoencoder::forward(const Tensor& x) {
+    x_c1 = c1->forward(x);
+    x_r1 = r1->forward(x_c1);
+    x_p1 = p1->forward(x_r1);
+
+    x_c2 = c2->forward(x_p1);
+    x_r2 = r2->forward(x_c2);
+    x_p2 = p2->forward(x_r2);
+
+    x_c3 = c3->forward(x_p2);
+    x_r3 = r3->forward(x_c3);
+    x_u1 = u1->forward(x_r3);
+
+    x_c4 = c4->forward(x_u1);
+    x_r4 = r4->forward(x_c4);
+    x_u2 = u2->forward(x_r4);
+
+    Tensor out = c5->forward(x_u2);
+    return out;
 }
 
-void Autoencoder::backward(Tensor grad) {
-    grad = c5->backward(grad);
-    grad = c4->backward(r4->backward(u2->backward(grad)));
-    grad = c3->backward(r3->backward(u1->backward(grad)));
-    grad = c2->backward(r2->backward(p2->backward(grad)));
-    grad = c1->backward(r1->backward(p1->backward(grad)));
+void Autoencoder::backward(const Tensor& grad) {
+    Tensor g = grad;
+
+    g = c5->backward(g);
+
+    g = u2->backward(g);
+    g = r4->backward(g);
+    g = c4->backward(g);
+
+    g = u1->backward(g);
+    g = r3->backward(g);
+    g = c3->backward(g);
+
+    g = p2->backward(g);
+    g = r2->backward(g);
+    g = c2->backward(g);
+
+    g = p1->backward(g);
+    g = r1->backward(g);
+    g = c1->backward(g);
 }
 
-// Update và clear grad
 void Autoencoder::update(float lr) {
-    c1->update_weights(lr); c1->clear_grads();
-    c2->update_weights(lr); c2->clear_grads();
-    c3->update_weights(lr); c3->clear_grads();
-    c4->update_weights(lr); c4->clear_grads();
-    c5->update_weights(lr); c5->clear_grads();
+    c1->update_weights(lr); 
+    c2->update_weights(lr); 
+    c3->update_weights(lr); 
+    c4->update_weights(lr);
+    c5->update_weights(lr); 
 }
 
-vector<float> Autoencoder::extract_features(Tensor x) {
-    x = p1->forward(r1->forward(c1->forward(x)));
-    x = p2->forward(r2->forward(c2->forward(x)));
-    return x.data; 
+vector<float> Autoencoder::extract_features(const Tensor& x) {
+    Tensor y = c1->forward(x);
+    y = r1->forward(y);
+    y = p1->forward(y);
+
+    y = c2->forward(y);
+    y = r2->forward(y);
+    y = p2->forward(y);
+
+    return y.data;
 }
 
-// Lưu weights
 void Autoencoder::save_weights(const string& filepath) {
     ofstream out(filepath, ios::binary);
     if (!out.is_open()) return;
@@ -78,7 +108,6 @@ void Autoencoder::save_weights(const string& filepath) {
     cout << "Model saved to " << filepath << endl;
 }
 
-// Load weights
 void Autoencoder::load_weights(const string& filepath) {
     ifstream in(filepath, ios::binary);
     if (!in.is_open()) { cerr << "Err loading " << filepath << endl; return; }

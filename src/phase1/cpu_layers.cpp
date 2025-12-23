@@ -3,128 +3,171 @@
 #include <cmath>
 #include<random>
 
-// Truy cập weights
-inline float& w_at(vector<float>& w, int o, int i, int kh, int kw, int in_c, int k_sz) {
-    return w[o * (in_c * k_sz * k_sz) + i * (k_sz * k_sz) + kh * k_sz + kw];
-}
-
 // Conv2D 
-Conv2D::Conv2D(int in_c, int out_c, int k, int s, int p) 
-    : in_c(in_c), out_c(out_c), k_size(k), stride(s), pad(p), input_cache(0,0,0) {
+Conv2D::Conv2D(int in_c, int out_c, int k, int s, int p) : in_c(in_c), out_c(out_c), k_size(k), stride(s), pad(p), input_cache_ptr(nullptr) {
     init_weights();
-
-    accum_grad_w.resize(weights.size(), 0.0f);
-    accum_grad_b.resize(biases.size(), 0.0f);
+    accum_grad_w.assign(weights.size(), 0.0f);
+    accum_grad_b.assign(biases.size(), 0.0f);
 }
 
 void Conv2D::init_weights() {
-    default_random_engine generator;
-    normal_distribution<float> distribution(0.0, sqrt(2.0 / (in_c * k_size * k_size)));
-    
-    int total_weights = out_c * in_c * k_size * k_size;
-    weights.resize(total_weights);
-    for(int i=0; i<total_weights; ++i) weights[i] = distribution(generator);
-    biases.resize(out_c, 0.0f);
-}
+    default_random_engine gen(42);
+    normal_distribution<float> dist(0.0f, sqrt(2.0f / (float)(in_c * k_size * k_size)));
 
-void Conv2D::clear_grads() {
-    fill(accum_grad_w.begin(), accum_grad_w.end(), 0.0f);
-    fill(accum_grad_b.begin(), accum_grad_b.end(), 0.0f);
+    int total = out_c * in_c * k_size * k_size;
+    weights.resize(total);
+    biases.resize(out_c);
+
+    for (int i = 0; i < total; ++i) weights[i] = dist(gen);
+    fill(biases.begin(), biases.end(), 0.0f);
 }
 
 Tensor Conv2D::forward(const Tensor& input) {
-    input_cache = input;
-    int out_h = (input.height + 2 * pad - k_size) / stride + 1;
-    int out_w = (input.width + 2 * pad - k_size) / stride + 1;
+    input_cache_ptr = &input;
+
+    const int in_h = input.height;
+    const int in_w = input.width;
+
+    const int out_h = (in_h + 2 * pad - k_size) / stride + 1;
+    const int out_w = (in_w + 2 * pad - k_size) / stride + 1;
+
     Tensor output(out_c, out_h, out_w);
 
-    for (int o = 0; o < out_c; ++o) {
-        float b_val = biases[o];
-        for (int y = 0; y < out_h; ++y) {
-            for (int x = 0; x < out_w; ++x) {
-                float sum = b_val;
-                int in_y_origin = y * stride - pad;
-                int in_x_origin = x * stride - pad;
+    const int inHW  = in_h * in_w;
+    const int outHW = out_h * out_w;
+    const int kHW   = k_size * k_size;
 
-                for (int i = 0; i < in_c; ++i) {
+    const float* inData = input.data.data();
+    float* outData      = output.data.data();
+
+    for (int oc = 0; oc < out_c; ++oc) {
+        const int w_base_oc = oc * (in_c * kHW);
+        const float b = biases[oc];
+
+        for (int oy = 0; oy < out_h; ++oy) {
+            const int in_y_origin  = oy * stride - pad;
+            const int out_row_base = oc * outHW + oy * out_w;
+
+            for (int ox = 0; ox < out_w; ++ox) {
+                const int in_x_origin = ox * stride - pad;
+                float sum = b;
+
+                for (int ic = 0; ic < in_c; ++ic) {
+                    const int w_base_ic  = w_base_oc + ic * kHW;
+                    const int in_base_ic = ic * inHW;
+
                     for (int ky = 0; ky < k_size; ++ky) {
-                        for (int kx = 0; kx < k_size; ++kx) {
-                            int in_y = in_y_origin + ky;
-                            int in_x = in_x_origin + kx;
+                        const int in_y = in_y_origin + ky;
+                        if ((unsigned)in_y >= (unsigned)in_h) continue;
 
-                            if (in_y >= 0 && in_y < input.height && in_x >= 0 && in_x < input.width) {
-                                float val = input.at(i, in_y, in_x);
-                                int w_idx = o * (in_c * k_size * k_size) + i * (k_size * k_size) + ky * k_size + kx;
-                                sum += val * weights[w_idx];
-                            }
+                        const int in_row_base = in_base_ic + in_y * in_w;
+                        const int w_row_base  = w_base_ic  + ky * k_size;
+
+                        for (int kx = 0; kx < k_size; ++kx) {
+                            const int in_x = in_x_origin + kx;
+                            if ((unsigned)in_x >= (unsigned)in_w) continue;
+
+                            sum += inData[in_row_base + in_x] * weights[w_row_base + kx];
                         }
                     }
                 }
-                output.at(o, y, x) = sum;
+
+                outData[out_row_base + ox] = sum;
             }
         }
     }
     return output;
 }
 
-Tensor Conv2D::backward(const Tensor& grad_output) {
-    Tensor grad_input(in_c, input_cache.height, input_cache.width);
-    int out_h = grad_output.height;
-    int out_w = grad_output.width;
+Tensor Conv2D::backward(const Tensor& grad_out) {
+    const Tensor& input = *input_cache_ptr;
 
-    for (int o = 0; o < out_c; ++o) {
-        for (int y = 0; y < out_h; ++y) {
-            for (int x = 0; x < out_w; ++x) {
-                float g = grad_output.at(o, y, x);
-                
-                // [Modified] Tích lũy Gradient Bias
-                accum_grad_b[o] += g;
+    const int in_h  = input.height;
+    const int in_w  = input.width;
+    const int out_h = grad_out.height;
+    const int out_w = grad_out.width;
 
-                int in_y_origin = y * stride - pad;
-                int in_x_origin = x * stride - pad;
+    Tensor grad_in(in_c, in_h, in_w);
+    fill(grad_in.data.begin(), grad_in.data.end(), 0.0f);
 
-                for (int i = 0; i < in_c; ++i) {
+    const int inHW  = in_h * in_w;
+    const int outHW = out_h * out_w;
+    const int kHW   = k_size * k_size;
+
+    const float* inData = input.data.data();
+    const float* gOut   = grad_out.data.data();
+    float* gIn          = grad_in.data.data();
+
+    for (int oc = 0; oc < out_c; ++oc) {
+        const int w_base_oc     = oc * (in_c * kHW);
+        const int g_out_base_oc = oc * outHW;
+
+        for (int oy = 0; oy < out_h; ++oy) {
+            const int in_y_origin    = oy * stride - pad;
+            const int g_out_row_base = g_out_base_oc + oy * out_w;
+
+            for (int ox = 0; ox < out_w; ++ox) {
+                const float g = gOut[g_out_row_base + ox];
+                accum_grad_b[oc] += g;
+
+                const int in_x_origin = ox * stride - pad;
+
+                for (int ic = 0; ic < in_c; ++ic) {
+                    const int w_base_ic  = w_base_oc + ic * kHW;
+                    const int in_base_ic = ic * inHW;
+
                     for (int ky = 0; ky < k_size; ++ky) {
+                        const int in_y = in_y_origin + ky;
+                        if ((unsigned)in_y >= (unsigned)in_h) continue;
+
+                        const int in_row_base = in_base_ic + in_y * in_w;
+                        const int w_row_base  = w_base_ic  + ky * k_size;
+
                         for (int kx = 0; kx < k_size; ++kx) {
-                            int in_y = in_y_origin + ky;
-                            int in_x = in_x_origin + kx;
+                            const int in_x = in_x_origin + kx;
+                            if ((unsigned)in_x >= (unsigned)in_w) continue;
 
-                            if (in_y >= 0 && in_y < input_cache.height && in_x >= 0 && in_x < input_cache.width) {
-                                int w_idx = o * (in_c * k_size * k_size) + i * (k_size * k_size) + ky * k_size + kx;
-                                
-                                // Tích lũy gradient weight
-                                accum_grad_w[w_idx] += input_cache.at(i, in_y, in_x) * g;
+                            const int in_idx = in_row_base + in_x;
+                            const int w_idx  = w_row_base + kx;
 
-                                grad_input.at(i, in_y, in_x) += weights[w_idx] * g;
-                            }
+                            accum_grad_w[w_idx] += inData[in_idx] * g;
+                            gIn[in_idx]          += weights[w_idx] * g;
                         }
                     }
                 }
             }
         }
     }
-    return grad_input;
+    return grad_in;
 }
 
 void Conv2D::update_weights(float lr) {
-    for (size_t i = 0; i < weights.size(); ++i) weights[i] -= lr * accum_grad_w[i];
-    for (size_t i = 0; i < biases.size(); ++i) biases[i] -= lr * accum_grad_b[i];
+    for (size_t i = 0; i < weights.size(); ++i) {
+        weights[i] -= lr * accum_grad_w[i];
+        accum_grad_w[i] = 0.0f;
+    }
+    for (size_t i = 0; i < biases.size(); ++i) {
+        biases[i] -= lr * accum_grad_b[i];
+        accum_grad_b[i] = 0.0f;
+    }
 }
 
-// ReLU 
+// ReLU
 Tensor ReLU::forward(const Tensor& input) {
     input_cache = input;
-    Tensor output = input;
-    for (float& val : output.data) val = max(0.0f, val);
-    return output;
+    Tensor out = input;
+    for (float& v : out.data) 
+        v = max(0.0f, v);
+    return out;
 }
 
-Tensor ReLU::backward(const Tensor& grad_output) {
-    Tensor grad_input = grad_output;
-    for (size_t i = 0; i < grad_input.data.size(); ++i) {
-        if (input_cache.data[i] <= 0) grad_input.data[i] = 0.0f;
+Tensor ReLU::backward(const Tensor& grad_out) {
+    Tensor grad_in = grad_out;
+    for (size_t i = 0; i < grad_in.data.size(); ++i) {
+        if (input_cache.data[i] <= 0.0f) 
+            grad_in.data[i] = 0.0f;
     }
-    return grad_input;
+    return grad_in;
 }
 
 // Max Pooling 2x2
@@ -132,89 +175,166 @@ MaxPool2D::MaxPool2D(int size, int s) : pool_size(size), stride(s), input_shape(
 
 Tensor MaxPool2D::forward(const Tensor& input) {
     input_shape = Tensor(input.channels, input.height, input.width);
-    int out_h = (input.height - pool_size) / stride + 1;
-    int out_w = (input.width - pool_size) / stride + 1;
-    Tensor output(input.channels, out_h, out_w);
-    max_indices.resize(output.data.size());
 
-    for (int c = 0; c < input.channels; ++c) {
-        for (int y = 0; y < out_h; ++y) {
-            for (int x = 0; x < out_w; ++x) {
-                float max_val = -1e9;
-                int max_idx = -1;
-                int h_start = y * stride;
-                int w_start = x * stride;
+    const int C = input.channels;
+    const int H = input.height;
+    const int W = input.width;
 
-                for (int kh = 0; kh < pool_size; ++kh) {
-                    for (int kw = 0; kw < pool_size; ++kw) {
-                        int cur_idx = c * input.height * input.width + (h_start + kh) * input.width + (w_start + kw);
-                        if (input.data[cur_idx] > max_val) {
-                            max_val = input.data[cur_idx];
-                            max_idx = cur_idx;
-                        }
+    const int out_h = (H - pool_size) / stride + 1;
+    const int out_w = (W - pool_size) / stride + 1;
+
+    Tensor output(C, out_h, out_w);
+    max_indices.assign((size_t)C * out_h * out_w, -1);
+
+    const float* inData = input.data.data();
+    float* outData      = output.data.data();
+
+    const int inHW  = H * W;
+    const int outHW = out_h * out_w;
+
+    for (int c = 0; c < C; ++c) {
+        const int in_base_c  = c * inHW;
+        const int out_base_c = c * outHW;
+
+        for (int oy = 0; oy < out_h; ++oy) {
+            const int h_start = oy * stride;
+
+            for (int ox = 0; ox < out_w; ++ox) {
+                const int w_start = ox * stride;
+
+                float max_val = -1e30f;
+                int max_idx   = -1;
+
+                for (int ky = 0; ky < pool_size; ++ky) {
+                    const int iy = h_start + ky;
+                    const int in_row = in_base_c + iy * W;
+
+                    for (int kx = 0; kx < pool_size; ++kx) {
+                        const int ix = w_start + kx;
+                        const int idx = in_row + ix;
+                        const float v = inData[idx];
+                        if (v > max_val) { max_val = v; max_idx = idx; }
                     }
                 }
-                output.at(c, y, x) = max_val;
-                max_indices[c * out_h * out_w + y * out_w + x] = max_idx;
+
+                const int out_idx = out_base_c + oy * out_w + ox;
+                outData[out_idx] = max_val;
+                max_indices[out_idx] = max_idx;
             }
         }
     }
     return output;
 }
 
-Tensor MaxPool2D::backward(const Tensor& grad_output) {
-    Tensor grad_input(input_shape.channels, input_shape.height, input_shape.width);
-    fill(grad_input.data.begin(), grad_input.data.end(), 0.0f);
-    for (size_t i = 0; i < max_indices.size(); ++i) {
-        grad_input.data[max_indices[i]] += grad_output.data[i];
-    }
-    return grad_input;
-}
+Tensor MaxPool2D::backward(const Tensor& grad_out) {
+    const int C = input_shape.channels;
+    const int H = input_shape.height;
+    const int W = input_shape.width;
 
+    Tensor grad_in(C, H, W);
+    fill(grad_in.data.begin(), grad_in.data.end(), 0.0f);
+
+    for (size_t i = 0; i < max_indices.size(); ++i) {
+        int idx = max_indices[i];
+        if (idx >= 0) grad_in.data[(size_t)idx] += grad_out.data[i];
+    }
+    return grad_in;
+}
 // UpSample 2x2
 UpSample2D::UpSample2D(int s) : scale(s), input_shape(0,0,0) {}
 
 Tensor UpSample2D::forward(const Tensor& input) {
     input_shape = Tensor(input.channels, input.height, input.width);
-    Tensor output(input.channels, input.height * scale, input.width * scale);
-    for (int c = 0; c < output.channels; ++c) {
-        for (int y = 0; y < output.height; ++y) {
-            for (int x = 0; x < output.width; ++x) {
-                output.at(c, y, x) = input.at(c, y / scale, x / scale);
+
+    const int C = input.channels;
+    const int H = input.height;
+    const int W = input.width;
+
+    const int out_h = H * scale;
+    const int out_w = W * scale;
+
+    Tensor output(C, out_h, out_w);
+
+    const float* inData = input.data.data();
+    float* outData      = output.data.data();
+
+    const int inHW  = H * W;
+    const int outHW = out_h * out_w;
+
+    for (int c = 0; c < C; ++c) {
+        const int in_base_c  = c * inHW;
+        const int out_base_c = c * outHW;
+
+        for (int iy = 0; iy < H; ++iy) {
+            for (int ix = 0; ix < W; ++ix) {
+                const float v = inData[in_base_c + iy * W + ix];
+                const int oy0 = iy * scale;
+                const int ox0 = ix * scale;
+
+                for (int dy = 0; dy < scale; ++dy) {
+                    const int out_row = out_base_c + (oy0 + dy) * out_w + ox0;
+                    for (int dx = 0; dx < scale; ++dx) outData[out_row + dx] = v;
+                }
             }
         }
     }
     return output;
 }
 
-Tensor UpSample2D::backward(const Tensor& grad_output) {
-    Tensor grad_input(input_shape.channels, input_shape.height, input_shape.width);
-    fill(grad_input.data.begin(), grad_input.data.end(), 0.0f);
-    for (int c = 0; c < grad_output.channels; ++c) {
-        for (int y = 0; y < grad_output.height; ++y) {
-            for (int x = 0; x < grad_output.width; ++x) {
-                grad_input.at(c, y / scale, x / scale) += grad_output.at(c, y, x);
+Tensor UpSample2D::backward(const Tensor& grad_out) {
+    const int C = input_shape.channels;
+    const int H = input_shape.height;
+    const int W = input_shape.width;
+
+    Tensor grad_in(C, H, W);
+    fill(grad_in.data.begin(), grad_in.data.end(), 0.0f);
+
+    const float* gOut = grad_out.data.data();
+
+    const int out_h = grad_out.height;
+    const int out_w = grad_out.width;
+
+    const int inHW  = H * W;
+    const int outHW = out_h * out_w;
+
+    for (int c = 0; c < C; ++c) {
+        const int in_base_c  = c * inHW;
+        const int out_base_c = c * outHW;
+
+        for (int iy = 0; iy < H; ++iy) {
+            for (int ix = 0; ix < W; ++ix) {
+                const int oy0 = iy * scale;
+                const int ox0 = ix * scale;
+
+                float sum = 0.0f;
+                for (int dy = 0; dy < scale; ++dy) {
+                    const int out_row = out_base_c + (oy0 + dy) * out_w + ox0;
+                    for (int dx = 0; dx < scale; ++dx) sum += gOut[out_row + dx];
+                }
+
+                grad_in.data[in_base_c + iy * W + ix] += sum;
             }
         }
     }
-    return grad_input;
+    return grad_in;
 }
 
 // MSE Loss
 float mse_loss(const Tensor& pred, const Tensor& target) {
     float sum = 0.0f;
     for (size_t i = 0; i < pred.data.size(); ++i) {
-        float diff = pred.data[i] - target.data[i];
-        sum += diff * diff;
+        const float d = pred.data[i] - target.data[i];
+        sum += d * d;
     }
-    return sum / pred.data.size();
+    return sum / (float)pred.data.size();
 }
 
 Tensor mse_loss_grad(const Tensor& pred, const Tensor& target) {
-    Tensor grad(pred.channels, pred.height, pred.width);
-    float n = (float)pred.data.size();
-    for (size_t i = 0; i < pred.data.size(); ++i) {
-        grad.data[i] = 2.0f * (pred.data[i] - target.data[i]) / n;
+    Tensor grad = pred;
+    const float scale = 2.0f / (float)pred.data.size();
+
+    for (size_t i = 0; i < grad.data.size(); ++i) {
+        grad.data[i] = scale * (pred.data[i] - target.data[i]);
     }
     return grad;
 }

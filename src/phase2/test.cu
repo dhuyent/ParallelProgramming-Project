@@ -54,7 +54,7 @@ void save_binary_results(GPUAutoencoder& model, CIFAR10Dataset& dataset, const s
 
 int main() {
     // 1. Load Data
-    std::string cifar_dir = "./cifar-10-batches-bin";
+    std::string cifar_dir = "./data/cifar-10-batches-bin";
     CIFAR10Dataset ds(cifar_dir);
     ds.load_data(); 
 
@@ -68,11 +68,8 @@ int main() {
     model.init_random_weights(0.0f); // Cấp phát bộ nhớ
 
     // 3. Load Weights
-    std::string model_path = "ae_final.bin"; 
-    // Kiểm tra file tồn tại, nếu không có final thì tìm best
-    std::ifstream fcheck(model_path);
-    if (!fcheck.good()) model_path = "ae_best_model.bin"; 
-    fcheck.close();
+    std::string model_path = "output/gpu_basic_model.bin"; 
+
 
     printf("Loading weights from '%s'...\n", model_path.c_str());
     if (!model.load_weights(model_path)) {
@@ -81,7 +78,7 @@ int main() {
     }
 
     // 4. Run Test & Save Binary
-    save_binary_results(model, ds, "reconstruction_results.bin");
+    save_binary_results(model, ds, "output/gpu_basic_reconstruction.bin");
 
     return 0;
 }
