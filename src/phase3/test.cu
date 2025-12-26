@@ -79,13 +79,8 @@ void run_and_save_reconstruction(Phase3Engine& eng, CIFAR10Dataset& ds, const st
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        printf("Usage: %s <cifar_dir> [model_path]\n", argv[0]);
-        return 1;
-    }
-
-    std::string cifar_dir = argv[1];
-    std::string model_path = (argc >= 3) ? argv[2] : "trained_ae_weights.bin";
+    std::string cifar_dir = "./data/cifar-10-batches-bin";
+    std::string model_path = "output/gpu_opt_model.bin";
 
     // 1. Load Dataset
     CIFAR10Dataset ds(cifar_dir);
@@ -114,7 +109,7 @@ int main(int argc, char** argv) {
     eng.sync_all();
 
     // 4. Run Test
-    run_and_save_reconstruction(eng, ds, "reconstruction.bin");
+    run_and_save_reconstruction(eng, ds, "output/gpu_opt_reconstruction.bin");
 
     eng.shutdown();
     return 0;

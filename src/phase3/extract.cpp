@@ -30,13 +30,12 @@ static void save_bin(const std::string &path, const std::vector<T> &data) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <cifar-dir> <weights-file>\n";
-        return 1;
-    }
+    std::string cifar_dir = "./data/cifar-10-batches-bin"; 
+    
+    std::string weights_path = "./output/gpu_opt_model.bin";
 
     // 1. Load Data
-    CIFAR10Dataset ds(argv[1]);
+    CIFAR10Dataset ds(cifar_dir);
     ds.load_data();
     
     std::vector<float> train_x_contig, test_x_contig;
@@ -50,7 +49,7 @@ int main(int argc, char **argv) {
     eng.init(p);
 
     // 3. Load Weights
-    eng.load_from_file(argv[2], eng.sCompute[0]);
+    eng.load_from_file(weights_path, eng.sCompute[0]);
     eng.sync_all();
 
     // 4. Feature Extraction & Timing

@@ -52,13 +52,8 @@ static void init_weights_host(std::vector<float> &w, float scale = 0.01f) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <cifar-dir> [weights.bin]\n";
-        return 1;
-    }
-
-    const char *cifar_dir = argv[1];
-    const char *weights_path = (argc >= 3) ? argv[2] : nullptr;
+    std::string cifar_dir = "./data/cifar-10-batches-bin";
+    
 
     // 1) Load & Pack Data
     CIFAR10Dataset ds(cifar_dir);
@@ -75,8 +70,9 @@ int main(int argc, char **argv) {
     Phase3Engine eng;
     eng.init(p);
 
+    std::string weights_path = "./output/gpu_basic_model.bin";
     // 3) Weights Initialization (Giữ nguyên logic của bạn)
-    if (weights_path) {
+    if (!weights_path.empty()) {
         std::vector<float> W;
         if (!read_f32_file(weights_path, W)) {
             std::cerr << "[Weights] Cannot read weights file: " << weights_path << "\n";
@@ -97,9 +93,7 @@ int main(int argc, char **argv) {
         copyW(eng.w.w3, 128 * 128 * 9); copyW(eng.w.b3, 128);
         copyW(eng.w.w4, 256 * 128 * 9); copyW(eng.w.b4, 256);
         copyW(eng.w.w5, 3 * 256 * 9); copyW(eng.w.b5, 3);
-        // std::cout << "[Weights] Loaded Phase 2 weights from " << weights_path << "\n";
     } else {
-        // std::cout << "[Weights] Phase 3 independent: random init\n";
         std::vector<float> hw1((size_t)256 * 3 * 9), hb1(256, 0.f);
         std::vector<float> hw2((size_t)128 * 256 * 9), hb2(128, 0.f);
         std::vector<float> hw3((size_t)128 * 128 * 9), hb3(128, 0.f);
@@ -189,8 +183,8 @@ int main(int argc, char **argv) {
     std::cout << "-------------------------------------------" << std::endl;
 
     // 5) Save final weights
-    std::cout << "[Save] Saving weights to trained_ae_weights.bin..." << std::endl;
-    eng.save_to_file("trained_ae_weights.bin", eng.sCompute[0]);
+    std::cout << "[Save] Saving weights..." << std::endl;
+    eng.save_to_file("output/gpu_opt_model.bin", eng.sCompute[0]);
 
     CUDA_CHECK(cudaEventDestroy(start_ev)); CUDA_CHECK(cudaEventDestroy(stop_ev));
     CUDA_CHECK(cudaEventDestroy(total_start)); CUDA_CHECK(cudaEventDestroy(total_stop));
