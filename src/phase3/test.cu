@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "gpu_opt.h"     // Chứa định nghĩa Phase3Engine
-#include "data_loader.h" // Chứa định nghĩa CIFAR10Dataset
+#include "../data_loader.h" // Chứa định nghĩa CIFAR10Dataset
 
 // Hằng số CIFAR-10
 static constexpr int H = 32;

@@ -7,8 +7,6 @@
 
 // Fixed shapes
 static constexpr int Cin = 3;
-static constexpr int H0 = 32;
-static constexpr int W0 = 32;
 
 static constexpr int C1 = 256;
 static constexpr int C2 = 128;

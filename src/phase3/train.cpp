@@ -1,5 +1,5 @@
-#include "data_loader.h"
-#include "utils.h"
+#include "../data_loader.h"
+#include "../utils.h"
 #include "gpu_opt.h"
 
 #include <vector>
