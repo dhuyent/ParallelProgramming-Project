@@ -106,7 +106,7 @@ Project được chia thành 3 phases. Dưới đây là lệnh biên dịch cho
 #### Phase 3: Optimized GPU Implementation (Shared Memory)
 - **Biên dịch:**
 ```bash
-nvcc -O3 -arch=sm_XX src/phase3/train.cpp src/data_loader.cpp src/phase3/gpu_opt.cu -o run_phase3
+!nvcc -O2 -arch=sm_XX src/phase3/train.cpp src/data_loader.cpp src/phase3/gpu_opt.cu -o run_phase3
 ```
 
 - **Thực thi:**
