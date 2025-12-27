@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 1 | 22127008 | Đặng Châu Anh |
 | 2 | 22127170 | Trần Dịu Huyền |
-| 3 | 22127359 | Chu Thủy Quỳnh |
+| 3 | 22127359 | Chu Thúy Quỳnh |
 
 ## Kế hoạch thực hiện & phân công công việc
 
@@ -76,7 +76,7 @@ data/
 mkdir -p output
 ```
 
-### 3. Biên dịch và Thực thi
+### 3. Biên dịch và thực thi
 
 Project được chia thành 3 phases. Dưới đây là lệnh biên dịch cho từng phase từ thư mục gốc của project.
 
@@ -95,7 +95,7 @@ Project được chia thành 3 phases. Dưới đây là lệnh biên dịch cho
 - **Biên dịch:**
 ```bash
 # Lưu ý: Thay arch=sm_XX bằng kiến trúc GPU cụ thể (VD: sm_75 cho T4, sm_80 cho A100)
-!nvcc -O2 -arch=sm_XX src/phase2/test.cu src/phase2/gpu_autoencoder.cu src/phase2/kernels.cu src/phase2/data_loader.cpp -o run_phase2
+!nvcc -O2 -arch=sm_XX src/phase2/train.cu src/phase2/gpu_autoencoder.cu src/phase2/kernels.cu src/phase2/data_loader.cpp -o run_phase2
 ```
 
 - **Thực thi:**
@@ -128,7 +128,6 @@ Ep 01/20 | Loss: 0.0452 | Time: 105.4s
 ...
 Ep 20/20 | Loss: 0.0143 | Time: 105.1s
 [Summary] Total Time: 2120.5s
-
 ```
 
 **Output files:**
