@@ -13,7 +13,7 @@
 | 3 | 22127359 | Chu Thúy Quỳnh |
 
 ## Kế hoạch thực hiện & phân công công việc
-Chi tiết về kế hoạch và phân chia công việc được lưu trong file Excel `Team-Plan-and-Work-Distribution.pdf`.
+Chi tiết về kế hoạch và phân chia công việc được lưu trong file Excel `Team Plan and Work Distribution.pdf`.
 
 ## Tổ chức mã nguồn
 Cấu trúc thư mục dự án bao gồm:
@@ -31,8 +31,8 @@ Cấu trúc thư mục dự án bao gồm:
 │   ├── phase3/                 # Phase 3: GPU Optimization (Shared Memory)
 │   ├── data_loader.cpp         # Xử lý đọc dữ liệu CIFAR-10
 │   └── utils.h                 # Các hàm tiện ích chung
-├── Report.ipynb                # Chạy chương trình và báo cáo kết quả
-└── src.zip                     # File zip của src/ để chạy trên Report
+├── Project Report.ipynb        # Chạy chương trình và báo cáo kết quả
+└── src.zip                     # File zip của src/ để chạy trên Project Report
 ```
 
 ## Hướng dẫn chạy chương trình
@@ -58,7 +58,7 @@ unzip src.zip
 ```
 
 **Bước 2: Chuẩn bị dữ liệu**
-Tạo thư mục `data` và tải bộ dữ liệu CIFAR-10 vào thư mục này hoặc chạy cell trên `Report.ipynb`. Đảm bảo cấu trúc như sau:
+Tạo thư mục `data` và tải bộ dữ liệu CIFAR-10 vào thư mục này hoặc chạy cell trên `Project Report.ipynb`. Đảm bảo cấu trúc như sau:
 
 ```text
 data/
@@ -136,3 +136,4 @@ Ep 20/20 | Loss: 0.0143 | Time: 105.1s
 ---
 
 ## Video trình bày
+https://youtu.be/QIHd1m53qnY?si=3wmC49yuer_AKe9r
