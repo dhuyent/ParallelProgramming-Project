@@ -4,10 +4,7 @@
 #include <fstream>
 #include <vector>
 
-
-// Fixed shapes
 static constexpr int Cin = 3;
-
 static constexpr int C1 = 256;
 static constexpr int C2 = 128;
 static constexpr int C3 = 128;
@@ -20,10 +17,8 @@ __device__ __forceinline__ int idx4(int n, int c, int h, int w, int C, int H, in
 }
 static inline int divUp(int a, int b) { return (a + b - 1) / b; }
 
-// Optional: constant memory only for inference/feature extraction (NOT for training per step)
 __constant__ float c_w1[C1 * Cin * 3 * 3];
 
-// ---------------- alloc helpers ----------------
 static void malloc_async(void **p, size_t bytes, cudaStream_t s)
 {
 #if CUDART_VERSION >= 11020
@@ -43,7 +38,6 @@ static void free_async(void *p, cudaStream_t s)
 #endif
 }
 
-// ---------------- kernels ----------------
 __global__ void maxpool2x2_fwd(const float *__restrict__ x, float *__restrict__ y,
                                int N, int C, int H, int W)
 {
@@ -77,7 +71,6 @@ __global__ void upsample2x2_nn_fwd(const float *__restrict__ x, float *__restric
     y[idx4(n, c, h, w, C, H2, W2)] = x[idx4(n, c, h >> 1, w >> 1, C, H, W)];
 }
 
-// MSE: returns batch mean loss into loss_out (scalar). Also produce g_out.
 __global__ void mse_loss_and_grad_batch(
     const float *__restrict__ out,
     const float *__restrict__ target,
@@ -93,7 +86,7 @@ __global__ void mse_loss_and_grad_batch(
     if (i < total)
     {
         float d = out[i] - target[i];
-        g_out[i] = (2.f / (float)total) * d; // mean MSE grad
+        g_out[i] = (2.f / (float)total) * d;
         v = d * d;
     }
     sh[tid] = v;
@@ -109,7 +102,6 @@ __global__ void mse_loss_and_grad_batch(
         atomicAdd(loss_out, sh[0] / (float)total);
 }
 
-// accumulate batch loss into epoch loss
 __global__ void accumulate_epoch_loss(const float *__restrict__ batch_loss,
                                       float *__restrict__ epoch_loss)
 {
@@ -178,7 +170,6 @@ __global__ void maxpool2x2_bwd(const float *__restrict__ x,
     g_x[base + W + 1] = (v11 == out) ? gx : 0.f;
 }
 
-// -------- forward conv optimized (shared tile + fused bias+relu) --------
 template <int TILE_H, int TILE_W, bool USE_CONST_W1>
 __global__ void conv3x3_bias_relu_fwd_opt(
     const float *__restrict__ x,
@@ -190,15 +181,14 @@ __global__ void conv3x3_bias_relu_fwd_opt(
     int nz = blockIdx.z;
     int n = nz / Cout_;
     int oc = nz - n * Cout_;
-    if (n >= N) return;
+    if (n >= N)
+        return;
 
     int out_h0 = blockIdx.y * TILE_H;
     int out_w0 = blockIdx.x * TILE_W;
 
     int th = threadIdx.y;
     int tw = threadIdx.x;
-    
-    // Đã xóa lệnh return ở đây để tất cả thread tham gia nạp Shared Memory
 
     extern __shared__ float sh[];
     int SH_H = TILE_H + 2;
@@ -208,7 +198,6 @@ __global__ void conv3x3_bias_relu_fwd_opt(
 
     for (int ic = 0; ic < Cin_; ++ic)
     {
-        // Nạp dữ liệu vào Shared Memory (Phải chạy cho mọi thread)
         for (int lh = th; lh < SH_H; lh += blockDim.y)
         {
             int ih = out_h0 + lh - 1;
@@ -225,22 +214,26 @@ __global__ void conv3x3_bias_relu_fwd_opt(
         }
         __syncthreads();
 
-        // Chỉ những thread nằm trong biên ảnh mới thực hiện tính toán
         int oh = out_h0 + th;
         int ow = out_w0 + tw;
-        if (oh < H && ow < W) 
+        if (oh < H && ow < W)
         {
             int base = th * SH_W + tw;
             float ww[9];
 
-            if constexpr (USE_CONST_W1) {
+            if constexpr (USE_CONST_W1)
+            {
                 int off = ((oc * Cin_ + ic) * 9);
-                #pragma unroll
-                for (int k = 0; k < 9; ++k) ww[k] = c_w1[off + k];
-            } else {
+#pragma unroll
+                for (int k = 0; k < 9; ++k)
+                    ww[k] = c_w1[off + k];
+            }
+            else
+            {
                 const float *src = w + ((oc * Cin_ + ic) * 9);
-                #pragma unroll
-                for (int k = 0; k < 9; ++k) ww[k] = src[k];
+#pragma unroll
+                for (int k = 0; k < 9; ++k)
+                    ww[k] = src[k];
             }
 
             acc += sh[base + 0 * SH_W + 0] * ww[0];
@@ -256,26 +249,26 @@ __global__ void conv3x3_bias_relu_fwd_opt(
         __syncthreads();
     }
 
-    // Ghi kết quả
     int oh = out_h0 + th;
     int ow = out_w0 + tw;
-    if (oh < H && ow < W) 
+    if (oh < H && ow < W)
     {
         acc += b[oc];
-        if (acc < 0.f) acc = 0.f; // Đối với lớp norelu thì bỏ dòng này
+        if (acc < 0.f)
+            acc = 0.f;
         y[idx4(n, oc, oh, ow, Cout_, H, W)] = acc;
     }
 }
 
-// Áp dụng cấu trúc này cho cả 2 kernel Forward (relu và norelu)
 template <int TILE_H, int TILE_W>
-__global__ void conv3x3_bias_fwd_opt(const float* x, const float* w, const float* b, float* y, 
-                                     int N, int Cin_, int H, int W, int Cout_) 
+__global__ void conv3x3_bias_fwd_opt(const float *x, const float *w, const float *b, float *y,
+                                     int N, int Cin_, int H, int W, int Cout_)
 {
     int nz = blockIdx.z;
     int n = nz / Cout_;
     int oc = nz - n * Cout_;
-    if (n >= N) return;
+    if (n >= N)
+        return;
 
     int out_h0 = blockIdx.y * TILE_H;
     int out_w0 = blockIdx.x * TILE_W;
@@ -288,12 +281,14 @@ __global__ void conv3x3_bias_fwd_opt(const float* x, const float* w, const float
 
     float acc = 0.f;
 
-    for (int ic = 0; ic < Cin_; ++ic) {
-        // --- BƯỚC 1: TẤT CẢ THREAD CÙNG NẠP SHARED MEMORY ---
-        for (int lh = th; lh < SH_H; lh += blockDim.y) {
+    for (int ic = 0; ic < Cin_; ++ic)
+    {
+        for (int lh = th; lh < SH_H; lh += blockDim.y)
+        {
             int ih = out_h0 + lh - 1;
             bool in_h = (ih >= 0 && ih < H);
-            for (int lw = tw; lw < SH_W; lw += blockDim.x) {
+            for (int lw = tw; lw < SH_W; lw += blockDim.x)
+            {
                 int iw = out_w0 + lw - 1;
                 bool in_w = (iw >= 0 && iw < W);
                 sh[lh * SH_W + lw] = (in_h && in_w) ? x[idx4(n, ic, ih, iw, Cin_, H, W)] : 0.f;
@@ -301,32 +296,30 @@ __global__ void conv3x3_bias_fwd_opt(const float* x, const float* w, const float
         }
         __syncthreads();
 
-        // --- BƯỚC 2: CHỈ THREAD TRONG BIÊN MỚI TÍNH TOÁN ---
         int oh = out_h0 + th;
         int ow = out_w0 + tw;
-        if (oh < H && ow < W) {
+        if (oh < H && ow < W)
+        {
             int base = th * SH_W + tw;
             const float *ww = w + ((oc * Cin_ + ic) * 9);
-            #pragma unroll
-            for (int k = 0; k < 9; ++k) {
-                acc += sh[base + (k/3) * SH_W + (k%3)] * ww[k];
+#pragma unroll
+            for (int k = 0; k < 9; ++k)
+            {
+                acc += sh[base + (k / 3) * SH_W + (k % 3)] * ww[k];
             }
         }
         __syncthreads();
     }
 
-    // --- BƯỚC 3: GHI KẾT QUẢ ---
     int oh = out_h0 + th;
     int ow = out_w0 + tw;
-    if (oh < H && ow < W) {
+    if (oh < H && ow < W)
+    {
         acc += b[oc];
-        // Nếu là kernel ReLU: if (acc < 0.f) acc = 0.f;
-        // Nếu là kernel No-ReLU cho lớp cuối: Giữ nguyên acc
         y[idx4(n, oc, oh, ow, Cout_, H, W)] = acc;
     }
 }
 
-// -------- backward dx naive (no atomic, nhưng nhiều compute) --------
 __global__ void conv3x3_dx_naive(
     const float *__restrict__ w,
     const float *__restrict__ g_y,
@@ -362,7 +355,6 @@ __global__ void conv3x3_dx_naive(
     g_x[idx4(n, ic, ih, iw, Cin_, H, W)] = acc;
 }
 
-// -------- backward dW/db optimized (tiled reduction) --------
 template <int TILE_H, int TILE_W>
 __global__ void conv3x3_bwd_dwdb_tiled(
     const float *__restrict__ x,
@@ -371,7 +363,6 @@ __global__ void conv3x3_bwd_dwdb_tiled(
     float *__restrict__ g_b,
     int N, int Cin_, int H, int W, int Cout_)
 {
-    // grid: (tile_id, ic, oc)
     int oc = blockIdx.z;
     int ic = blockIdx.y;
 
@@ -414,7 +405,6 @@ __global__ void conv3x3_bwd_dwdb_tiled(
         }
     }
 
-    // shared reduction (assume TILE_H=8, TILE_W=16 as used below)
     __shared__ float sh_db[8][16];
     __shared__ float sh_dw[9][8][16];
 
@@ -424,7 +414,6 @@ __global__ void conv3x3_bwd_dwdb_tiled(
         sh_dw[k][th][tw] = dw[k];
     __syncthreads();
 
-    // reduce over x (tw)
     for (int s = blockDim.x / 2; s > 0; s >>= 1)
     {
         if (tw < s)
@@ -436,7 +425,7 @@ __global__ void conv3x3_bwd_dwdb_tiled(
         }
         __syncthreads();
     }
-    // reduce over y (th) on tw=0
+
     for (int s = blockDim.y / 2; s > 0; s >>= 1)
     {
         if (tw == 0 && th < s)
@@ -459,7 +448,6 @@ __global__ void conv3x3_bwd_dwdb_tiled(
     }
 }
 
-// SGD update + reset grad
 __global__ void sgd_update(float *w, float *g, float lr, int n)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -479,7 +467,6 @@ __global__ void sgd_update_bias(float *b, float *g, float lr, int n)
     }
 }
 
-// ---------------- weights/buffers alloc ----------------
 void AEWeightsDev::alloc(cudaStream_t s)
 {
     auto A = [&](float **p, size_t bytes)
@@ -625,7 +612,6 @@ void AEBuffersDev::free(cudaStream_t s)
     free_async(d_epoch_loss, s);
 }
 
-// ---------------- engine ----------------
 void Phase3Engine::init(const AEParams &params)
 {
     p = params;
@@ -660,13 +646,11 @@ void Phase3Engine::shutdown()
 
 void Phase3Engine::sync_all() { CUDA_CHECK(cudaDeviceSynchronize()); }
 
-// Reset epoch loss once per epoch
 void Phase3Engine::reset_epoch_loss()
 {
     CUDA_CHECK(cudaMemsetAsync(b.d_epoch_loss, 0, sizeof(float), sCompute[0]));
 }
 
-// Get avg epoch loss (sync once)
 float Phase3Engine::get_epoch_loss_avg_sync(int steps_per_epoch)
 {
     float h = 0.f;
@@ -676,7 +660,6 @@ float Phase3Engine::get_epoch_loss_avg_sync(int steps_per_epoch)
     return h / (float)steps_per_epoch;
 }
 
-// launch helpers
 static void launch_conv_relu(cudaStream_t s,
                              const float *x, const float *w, const float *b, float *y,
                              int N, int Cin_, int H, int W, int Cout_, bool useConstW1)
@@ -707,10 +690,8 @@ static void launch_conv_norelu(cudaStream_t s,
     conv3x3_bias_fwd_opt<TILE_H, TILE_W><<<grid, block, shmem, s>>>(x, w, b, y, N, Cin_, H, W, Cout_);
 }
 
-// ---------- main training step (NO sync, NO return loss) ----------
 void Phase3Engine::train_step_async(const float *x_batch_host, int bufIdx)
 {
-    // H2D async via pinned
     std::memcpy(h_batchPinned[bufIdx], x_batch_host, batchBytes);
     CUDA_CHECK(cudaMemcpyAsync(b.x, h_batchPinned[bufIdx], batchBytes,
                                cudaMemcpyHostToDevice, sH2D[bufIdx]));
@@ -720,11 +701,7 @@ void Phase3Engine::train_step_async(const float *x_batch_host, int bufIdx)
     cudaStream_t s = sCompute[bufIdx];
     int N = p.batch;
 
-    // batch loss reset
     CUDA_CHECK(cudaMemsetAsync(b.d_loss, 0, sizeof(float), s));
-
-    // -------- FORWARD (optimized) --------
-    // IMPORTANT: training uses global w1 (useConstW1=false) => no per-step memcpyToSymbol
     launch_conv_relu(s, b.x, w.w1, w.b1, b.c1, N, Cin, 32, 32, C1, false);
 
     {
@@ -755,14 +732,11 @@ void Phase3Engine::train_step_async(const float *x_batch_host, int bufIdx)
 
     launch_conv_norelu(s, b.u2, w.w5, w.b5, b.out, N, C4, 32, 32, Cout);
 
-    // loss + grad(out)
     int total = N * Cout * 32 * 32;
     mse_loss_and_grad_batch<<<divUp(total, 256), 256, 0, s>>>(b.out, b.x, b.g_out, b.d_loss, total);
 
-    // add batch loss into epoch loss
     accumulate_epoch_loss<<<1, 32, 0, s>>>(b.d_loss, b.d_epoch_loss);
 
-    // -------- BACKWARD (dW/db optimized + dx naive) --------
     constexpr int TH = 8, TW = 16;
     dim3 blockDW(TW, TH);
 
@@ -784,65 +758,55 @@ void Phase3Engine::train_step_async(const float *x_batch_host, int bufIdx)
         conv3x3_dx_naive<<<grid2d, block2d, 0, s>>>(w, gy, gx, N, CinL, HL, WL, CoutL);
     };
 
-    // conv5: x=u2, gy=g_out, Cin=256, Cout=3, H=W=32
     CUDA_CHECK(cudaMemsetAsync(w.gw5, 0, (size_t)Cout * C4 * 9 * sizeof(float), s));
     CUDA_CHECK(cudaMemsetAsync(w.gb5, 0, (size_t)Cout * sizeof(float), s));
     launch_dwdb(b.u2, b.g_out, w.gw5, w.gb5, C4, 32, 32, Cout);
     launch_dx(w.w5, b.g_out, b.g_u2, C4, 32, 32, Cout);
 
-    // up2 bwd -> g_c4
     {
         dim3 block(16, 16), grid(divUp(16, 16), divUp(16, 16), N * C4);
         upsample2x2_nn_bwd<<<grid, block, 0, s>>>(b.g_u2, b.g_c4, N, C4, 16, 16);
     }
     relu_bwd<<<divUp(N * C4 * 16 * 16, 256), 256, 0, s>>>(b.c4, b.g_c4, b.g_c4, N * C4 * 16 * 16);
 
-    // conv4: x=u1, gy=g_c4, Cin=128, Cout=256, H=W=16
     CUDA_CHECK(cudaMemsetAsync(w.gw4, 0, (size_t)C4 * C3 * 9 * sizeof(float), s));
     CUDA_CHECK(cudaMemsetAsync(w.gb4, 0, (size_t)C4 * sizeof(float), s));
     launch_dwdb(b.u1, b.g_c4, w.gw4, w.gb4, C3, 16, 16, C4);
     launch_dx(w.w4, b.g_c4, b.g_u1, C3, 16, 16, C4);
 
-    // up1 bwd -> g_c3
     {
         dim3 block(16, 16), grid(divUp(8, 16), divUp(8, 16), N * C3);
         upsample2x2_nn_bwd<<<grid, block, 0, s>>>(b.g_u1, b.g_c3, N, C3, 8, 8);
     }
     relu_bwd<<<divUp(N * C3 * 8 * 8, 256), 256, 0, s>>>(b.c3, b.g_c3, b.g_c3, N * C3 * 8 * 8);
 
-    // conv3: x=lat, gy=g_c3, Cin=128, Cout=128, H=W=8
     CUDA_CHECK(cudaMemsetAsync(w.gw3, 0, (size_t)C3 * C3 * 9 * sizeof(float), s));
     CUDA_CHECK(cudaMemsetAsync(w.gb3, 0, (size_t)C3 * sizeof(float), s));
     launch_dwdb(b.lat, b.g_c3, w.gw3, w.gb3, C3, 8, 8, C3);
     launch_dx(w.w3, b.g_c3, b.g_lat, C3, 8, 8, C3);
 
-    // pool2 bwd -> g_c2
     {
         dim3 block(16, 16), grid(divUp(8, 16), divUp(8, 16), N * C2);
         maxpool2x2_bwd<<<grid, block, 0, s>>>(b.c2, b.lat, b.g_lat, b.g_c2, N, C2, 16, 16);
     }
     relu_bwd<<<divUp(N * C2 * 16 * 16, 256), 256, 0, s>>>(b.c2, b.g_c2, b.g_c2, N * C2 * 16 * 16);
 
-    // conv2: x=p1, gy=g_c2, Cin=256, Cout=128, H=W=16
     CUDA_CHECK(cudaMemsetAsync(w.gw2, 0, (size_t)C2 * C1 * 9 * sizeof(float), s));
     CUDA_CHECK(cudaMemsetAsync(w.gb2, 0, (size_t)C2 * sizeof(float), s));
     launch_dwdb(b.p1, b.g_c2, w.gw2, w.gb2, C1, 16, 16, C2);
     launch_dx(w.w2, b.g_c2, b.g_p1, C1, 16, 16, C2);
 
-    // pool1 bwd -> g_c1
     {
         dim3 block(16, 16), grid(divUp(16, 16), divUp(16, 16), N * C1);
         maxpool2x2_bwd<<<grid, block, 0, s>>>(b.c1, b.p1, b.g_p1, b.g_c1, N, C1, 32, 32);
     }
     relu_bwd<<<divUp(N * C1 * 32 * 32, 256), 256, 0, s>>>(b.c1, b.g_c1, b.g_c1, N * C1 * 32 * 32);
 
-    // conv1: x=x, gy=g_c1, Cin=3, Cout=256, H=W=32
     CUDA_CHECK(cudaMemsetAsync(w.gw1, 0, (size_t)C1 * Cin * 9 * sizeof(float), s));
     CUDA_CHECK(cudaMemsetAsync(w.gb1, 0, (size_t)C1 * sizeof(float), s));
     launch_dwdb(b.x, b.g_c1, w.gw1, w.gb1, Cin, 32, 32, C1);
     launch_dx(w.w1, b.g_c1, b.g_x, Cin, 32, 32, C1);
 
-    // -------- SGD update --------
     auto updW = [&](float *W, float *G, int n)
     { sgd_update<<<divUp(n, 256), 256, 0, s>>>(W, G, p.lr, n); };
     auto updB = [&](float *B, float *G, int n)
@@ -858,11 +822,8 @@ void Phase3Engine::train_step_async(const float *x_batch_host, int bufIdx)
     updB(w.b2, w.gb2, C2);
     updW(w.w1, w.gw1, C1 * Cin * 9);
     updB(w.b1, w.gb1, C1);
-
-    // NO sync, NO return
 }
 
-// ---------- feature extraction (still can use constant) ----------
 void Phase3Engine::extract_features(const float *x_host_contig, float *feat_host_contig, int Ntotal)
 {
     int N = p.batch;
@@ -874,7 +835,6 @@ void Phase3Engine::extract_features(const float *x_host_contig, float *feat_host
     CUDA_CHECK(cudaMallocHost((void **)&h_inPinned, inBytes));
     CUDA_CHECK(cudaMallocHost((void **)&h_featPinned, featBytes));
 
-    // upload conv1 weights to constant ONCE for inference
     CUDA_CHECK(cudaMemcpyToSymbol(c_w1, w.w1, sizeof(c_w1)));
 
     for (int i = 0; i < Ntotal; i += N)
@@ -906,74 +866,72 @@ void Phase3Engine::extract_features(const float *x_host_contig, float *feat_host
     CUDA_CHECK(cudaFreeHost(h_featPinned));
 }
 
-void Phase3Engine::save_to_file(const std::string& filename, cudaStream_t s)
+void Phase3Engine::save_to_file(const std::string &filename, cudaStream_t s)
 {
-    struct WeightEntry {
-        float* dev_ptr;
+    struct WeightEntry
+    {
+        float *dev_ptr;
         size_t count;
     };
 
-    // Truy cập thông qua đối tượng 'w' của Phase3Engine
     std::vector<WeightEntry> entries = {
-        {w.w1, (size_t)C1 * Cin * 9}, {w.b1, (size_t)C1},
-        {w.w2, (size_t)C2 * C1 * 9},  {w.b2, (size_t)C2},
-        {w.w3, (size_t)C3 * C3 * 9},  {w.b3, (size_t)C3},
-        {w.w4, (size_t)C4 * C3 * 9},  {w.b4, (size_t)C4},
-        {w.w5, (size_t)Cout * C4 * 9},{w.b5, (size_t)Cout}
-    };
+        {w.w1, (size_t)C1 * Cin * 9}, {w.b1, (size_t)C1}, {w.w2, (size_t)C2 * C1 * 9}, {w.b2, (size_t)C2}, {w.w3, (size_t)C3 * C3 * 9}, {w.b3, (size_t)C3}, {w.w4, (size_t)C4 * C3 * 9}, {w.b4, (size_t)C4}, {w.w5, (size_t)Cout * C4 * 9}, {w.b5, (size_t)Cout}};
 
     std::ofstream os(filename, std::ios::binary);
-    if (!os.is_open()) {
+    if (!os.is_open())
+    {
         printf("[Error] Could not open file %s for writing\n", filename.c_str());
         return;
     }
 
-    for (auto& entry : entries) {
+    for (auto &entry : entries)
+    {
         size_t bytes = entry.count * sizeof(float);
         std::vector<float> host_buf(entry.count);
-        
-        // Copy từ GPU về CPU
+
         CUDA_CHECK(cudaMemcpyAsync(host_buf.data(), entry.dev_ptr, bytes, cudaMemcpyDeviceToHost, s));
-        cudaStreamSynchronize(s); 
-        
-        os.write(reinterpret_cast<const char*>(host_buf.data()), bytes);
+        cudaStreamSynchronize(s);
+
+        os.write(reinterpret_cast<const char *>(host_buf.data()), bytes);
     }
     os.close();
     printf("[System] Weights successfully saved to: %s\n", filename.c_str());
 }
 
-void Phase3Engine::load_from_file(const std::string& filename, cudaStream_t s)
+void Phase3Engine::load_from_file(const std::string &filename, cudaStream_t s)
 {
-    std::ifstream is(filename, std::ios::binary | std::ios::ate); // ate để nhảy xuống cuối file
-    if (!is.is_open()) return;
+    std::ifstream is(filename, std::ios::binary | std::ios::ate);
+    if (!is.is_open())
+        return;
 
     size_t fileSize = is.tellg();
     is.seekg(0, std::ios::beg);
 
     std::vector<float> full_host_buf(fileSize / sizeof(float));
-    is.read(reinterpret_cast<char*>(full_host_buf.data()), fileSize);
+    is.read(reinterpret_cast<char *>(full_host_buf.data()), fileSize);
     is.close();
 
-    struct WeightEntry { float* dev_ptr; size_t count; };
-    std::vector<WeightEntry> entries = {
-        {w.w1, (size_t)C1 * Cin * 9}, {w.b1, (size_t)C1},
-        {w.w2, (size_t)C2 * C1 * 9},  {w.b2, (size_t)C2},
-        {w.w3, (size_t)C3 * C3 * 9},  {w.b3, (size_t)C3},
-        {w.w4, (size_t)C4 * C3 * 9},  {w.b4, (size_t)C4},
-        {w.w5, (size_t)Cout * C4 * 9},{w.b5, (size_t)Cout}
+    struct WeightEntry
+    {
+        float *dev_ptr;
+        size_t count;
     };
+    std::vector<WeightEntry> entries = {
+        {w.w1, (size_t)C1 * Cin * 9}, {w.b1, (size_t)C1}, {w.w2, (size_t)C2 * C1 * 9}, {w.b2, (size_t)C2}, {w.w3, (size_t)C3 * C3 * 9}, {w.b3, (size_t)C3}, {w.w4, (size_t)C4 * C3 * 9}, {w.b4, (size_t)C4}, {w.w5, (size_t)Cout * C4 * 9}, {w.b5, (size_t)Cout}};
 
     size_t offset = 0;
-    for (auto& entry : entries) {
-        CUDA_CHECK(cudaMemcpyAsync(entry.dev_ptr, full_host_buf.data() + offset, 
+    for (auto &entry : entries)
+    {
+        CUDA_CHECK(cudaMemcpyAsync(entry.dev_ptr, full_host_buf.data() + offset,
                                    entry.count * sizeof(float), cudaMemcpyHostToDevice, s));
         offset += entry.count;
     }
-    cudaStreamSynchronize(s); // Đảm bảo toàn bộ full_host_buf đã được copy xong trước khi hàm kết thúc
+    cudaStreamSynchronize(s);
     printf("[System] Weights successfully loaded from: %s\n", filename.c_str());
 }
 
-void Phase3Engine::forward_only(int N, cudaStream_t s) {
+void Phase3Engine::forward_only(int N, cudaStream_t s)
+{
     launch_conv_relu(s, b.x, w.w1, w.b1, b.c1, N, Cin, 32, 32, C1, false);
 
     {
