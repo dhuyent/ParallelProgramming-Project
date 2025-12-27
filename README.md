@@ -13,11 +13,9 @@
 | 3 | 22127359 | Chu Thúy Quỳnh |
 
 ## Kế hoạch thực hiện & phân công công việc
-
-Chi tiết về kế hoạch và phân chia công việc được lưu trong file Excel `Team-Plan-and-Work-Distribution.xlsx`.
+Chi tiết về kế hoạch và phân chia công việc được lưu trong file Excel `Team-Plan-and-Work-Distribution.pdf`.
 
 ## Tổ chức mã nguồn
-
 Cấu trúc thư mục dự án bao gồm:
 
 ```text
