@@ -1,6 +1,3 @@
-// train.cu
-// Compile: nvcc -O2 -arch=sm_70 train.cu gpu_autoencoder.cu kernels.cu data_loader.cpp -o train_ae
-
 #include <cstdio>
 #include <vector>
 #include <string>
@@ -12,7 +9,6 @@
 #include "gpu_autoencoder.cuh"
 #include "data_loader.h" 
 
-// Helper: Kiểm tra bộ nhớ GPU
 void print_gpu_memory_usage() {
     size_t free_byte, total_byte;
     cudaError_t cuda_status = cudaMemGetInfo(&free_byte, &total_byte);
@@ -41,20 +37,16 @@ int main(int argc, char** argv) {
     printf("[Config] cifar_dir='%s' epochs=%d batch_size=%d lr_init=%.6f\n",
         cifar_dir.c_str(), epochs, batch_size, learning_rate);
 
-    // 1. Load Data
     CIFAR10Dataset ds(cifar_dir);
     ds.load_data();
     if (ds.train_images.empty()) return 1;
 
-    // 2. Setup Model
     GPUAutoencoder model;
     model.init_random_weights(); 
 
-    // Kiểm tra bộ nhớ sau khi init model
     printf("--- Memory after Model Init ---\n");
     print_gpu_memory_usage();
 
-    // Buffer tạm cho target
     size_t s_input = (size_t)3 * 32 * 32 * sizeof(float);
     float* d_target = nullptr;
     CHECK(cudaMalloc((void**)&d_target, s_input));
@@ -62,7 +54,7 @@ int main(int argc, char** argv) {
     int n_samples = (int)ds.train_images.size();
     int num_batches = (n_samples + batch_size - 1) / batch_size;
     
-    // 3. Timers Setup
+
     cudaEvent_t epoch_start, epoch_end;
     CHECK(cudaEventCreate(&epoch_start));
     CHECK(cudaEventCreate(&epoch_end));
@@ -72,16 +64,12 @@ int main(int argc, char** argv) {
     CHECK(cudaEventCreate(&total_end));
 
     printf("[Train] Starting loop. Total steps: %d per epoch.\n\n", num_batches);
-
-    // BẮT ĐẦU TÍNH GIỜ TỔNG
     CHECK(cudaEventRecord(total_start, 0));
 
-    // ================= TRAINING LOOP =================
     for (int ep = 0; ep < epochs; ++ep) {
         
         CHECK(cudaEventRecord(epoch_start, 0));
 
-        // Shuffle Data
         ds.shuffle_train_data();
         double epoch_loss = 0.0;
         
@@ -91,7 +79,6 @@ int main(int argc, char** argv) {
             int cur_bs = end_idx - start_idx;
             if (cur_bs <= 0) break;
 
-            // Zero gradients
             CHECK(cudaMemset(model.d_g_w_conv1, 0, model.h_w_conv1.size()*sizeof(float)));
             CHECK(cudaMemset(model.d_g_b_conv1, 0, model.h_b_conv1.size()*sizeof(float)));
             CHECK(cudaMemset(model.d_g_w_conv2, 0, model.h_w_conv2.size()*sizeof(float)));
@@ -105,7 +92,6 @@ int main(int argc, char** argv) {
 
             double batch_loss = 0.0;
             
-            // --- VÒNG LẶP BATCH ---
             for (int b = 0; b < cur_bs; ++b) {
                 int current_index = start_idx + b;
                 float* img_ptr = ds.train_images[current_index].data();
@@ -113,21 +99,15 @@ int main(int argc, char** argv) {
                 CHECK(cudaMemcpy(model.d_input, img_ptr, s_input, cudaMemcpyHostToDevice));
                 CHECK(cudaMemcpy(d_target, img_ptr, s_input, cudaMemcpyHostToDevice));
                 
-                // --- CẬP NHẬT GỌI HÀM FORWARD (Dùng method của class) ---
                 float sample_loss = model.forward(model.d_input, d_target);
-                
                 batch_loss += sample_loss;
-                
-                // --- CẬP NHẬT GỌI HÀM BACKWARD (Dùng method của class) ---
                 model.backward();
             }
 
-            // --- CẬP NHẬT GỌI HÀM UPDATE (Dùng method của class) ---
             model.update_weights(cur_bs, learning_rate);
 
             epoch_loss += batch_loss;
 
-            // LOGGING
             if ((step+1) % 100 == 0 || step == num_batches-1) {
                 size_t free, total;
                 cudaMemGetInfo(&free, &total);

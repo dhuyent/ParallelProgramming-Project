@@ -1,6 +1,3 @@
-// gpu_autoencoder.cu
-// Compile with nvcc: nvcc -O2 -arch=sm_70 train.cu gpu_autoencoder.cu kernels.cu data_loader.cpp -o train_ae
-
 #include "gpu_autoencoder.cuh"
 #include <cuda_runtime.h>
 #include <cstdio>
@@ -9,12 +6,10 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
-#include <algorithm> // std::max
+#include <algorithm>
 
-// --------------------------------------------------------------------------
+
 // CONSTRUCTOR & DESTRUCTOR
-// --------------------------------------------------------------------------
-
 GPUAutoencoder::GPUAutoencoder()
 : d_w_conv1(nullptr), d_b_conv1(nullptr),
   d_w_conv2(nullptr), d_b_conv2(nullptr),
@@ -35,7 +30,7 @@ GPUAutoencoder::GPUAutoencoder()
   d_grad_up1(nullptr), d_grad_dec_act1(nullptr), d_grad_latent(nullptr),
   d_grad_pool2(nullptr), d_grad_act2(nullptr), d_grad_pool1(nullptr),
   d_grad_act1(nullptr),
-  d_loss_accum(nullptr), // <--- UPDATE: Khởi tạo biến thành viên
+  d_loss_accum(nullptr), 
   device_allocated_(false)
 {
 }
@@ -44,10 +39,8 @@ GPUAutoencoder::~GPUAutoencoder() {
     free_all();
 }
 
-// --------------------------------------------------------------------------
-// MEMORY MANAGEMENT HELPERS
-// --------------------------------------------------------------------------
 
+// MEMORY MANAGEMENT HELPERS
 void GPUAutoencoder::malloc_device_ptr(float** dptr, size_t bytes, bool zero) {
     CHECK(cudaMalloc((void**)dptr, bytes));
     if (zero) CHECK(cudaMemset(*dptr, 0, bytes));
@@ -57,15 +50,11 @@ void GPUAutoencoder::malloc_device_ptr_int(int** dptr, size_t bytes, bool zero) 
     if (zero) CHECK(cudaMemset(*dptr, 0, bytes));
 }
 
-// --------------------------------------------------------------------------
-// INITIALIZATION (He Init + Allocation)
-// --------------------------------------------------------------------------
 
+// INITIALIZATION (He Init + Allocation)
 void GPUAutoencoder::init_random_weights(float stddev) {
-    // Kích thước Kernel
     const int k = KERNEL; 
 
-    // Helper: He Initialization (Fan-in)
     auto init_vec = [&](std::vector<float>& v, int fan_in, int size) {
         v.resize(size);
         float limit = sqrt(2.0f / (float)fan_in); // He normal
@@ -91,7 +80,6 @@ void GPUAutoencoder::init_random_weights(float stddev) {
     init_vec(h_w_dec3, 256 * k * k, 3 * 256 * k * k);
     h_b_dec3.assign(3, 0.0f);
 
-    // Cấp phát bộ nhớ GPU
     alloc_weights_on_device();
     alloc_activations_and_buffers();
     alloc_grads_on_device();
@@ -138,7 +126,6 @@ void GPUAutoencoder::alloc_activations_and_buffers() {
     malloc_device_ptr(&d_up2, s_up2);
     malloc_device_ptr(&d_out, s_out);
 
-    // <--- UPDATE: Cấp phát bộ nhớ cho d_loss_accum một lần duy nhất ở đây
     malloc_device_ptr(&d_loss_accum, sizeof(float), true);
 
     malloc_device_ptr_int(&d_pool1_idx, (256*16*16)*sizeof(int));
@@ -171,10 +158,8 @@ void GPUAutoencoder::alloc_grads_on_device() {
     malloc_device_ptr(&d_grad_act1, 256*32*32*sizeof(float));
 }
 
-// --------------------------------------------------------------------------
-// DATA TRANSFER (Host <-> Device)
-// --------------------------------------------------------------------------
 
+// DATA TRANSFER (Host <-> Device)
 void GPUAutoencoder::copy_weights_to_device() {
     auto copy = [&](float* d_ptr, std::vector<float>& h_vec) {
         CHECK(cudaMemcpy(d_ptr, h_vec.data(), h_vec.size()*sizeof(float), cudaMemcpyHostToDevice));
@@ -197,10 +182,8 @@ void GPUAutoencoder::copy_weights_to_host() {
     copy(h_w_dec3, d_w_dec3);   copy(h_b_dec3, d_b_dec3);
 }
 
-// --------------------------------------------------------------------------
-// SAVE & LOAD (Single Binary File)
-// --------------------------------------------------------------------------
 
+// SAVE & LOAD (Single Binary File)
 void GPUAutoencoder::save_weights(const std::string& filename) {
     copy_weights_to_host();
     std::ofstream f(filename, std::ios::binary);
@@ -224,7 +207,6 @@ bool GPUAutoencoder::load_weights(const std::string& filename) {
     std::ifstream f(filename, std::ios::binary);
     if (!f) { std::cerr << "[Error] Cannot open " << filename << "\n"; return false; }
 
-    // Resize host vectors based on architecture constants (HARDCODED ARCHITECTURE)
     const int k = KERNEL; 
     h_w_conv1.resize(256*3*k*k);   h_b_conv1.resize(256);
     h_w_conv2.resize(128*256*k*k); h_b_conv2.resize(128);
@@ -245,7 +227,6 @@ bool GPUAutoencoder::load_weights(const std::string& filename) {
     if (!f) return false;
     f.close();
     
-    // Nếu chưa cấp phát GPU thì cấp phát luôn
     if (!device_allocated_) {
         alloc_weights_on_device();
         alloc_activations_and_buffers();
@@ -259,10 +240,8 @@ bool GPUAutoencoder::load_weights(const std::string& filename) {
     return true;
 }
 
-// --------------------------------------------------------------------------
-// CORE OPERATIONS
-// --------------------------------------------------------------------------
 
+// CORE OPERATIONS
 // 1. FORWARD PASS (Train)
 float GPUAutoencoder::forward(float* d_input_sample, float* d_target_sample) {
     const int k = KERNEL;
@@ -303,11 +282,7 @@ float GPUAutoencoder::forward(float* d_input_sample, float* d_target_sample) {
 
     // Compute Loss
     int total_out = 3 * 32 * 32;
-    // Reset gradient đầu ra
     CHECK(cudaMemset(d_g_out, 0, total_out * sizeof(float))); 
-    
-    // <--- UPDATE: Bỏ cudaMalloc ở đây, sử dụng d_loss_accum đã cấp phát sẵn
-    // Rất quan trọng: Phải reset giá trị cũ về 0
     CHECK(cudaMemset(d_loss_accum, 0, sizeof(float))); 
     
     launch_mse_loss_and_grad(d_out, d_target_sample, d_g_out, d_loss_accum, total_out);
@@ -315,7 +290,6 @@ float GPUAutoencoder::forward(float* d_input_sample, float* d_target_sample) {
     
     float h_loss = 0.0f;
     CHECK(cudaMemcpy(&h_loss, d_loss_accum, sizeof(float), cudaMemcpyDeviceToHost));
-    // <--- UPDATE: Không gọi cudaFree ở đây nữa
 
     return h_loss;
 }
@@ -371,7 +345,7 @@ void GPUAutoencoder::update_weights(int batch_size, float lr) {
     CHECK(cudaDeviceSynchronize());
 }
 
-// 4. EXTRACT FEATURES (Inference for SVM)
+// 4. EXTRACT FEATURES
 void GPUAutoencoder::extract_features(float* d_in, float* h_out) {
     const int k = KERNEL;
     // Conv1
@@ -392,15 +366,12 @@ void GPUAutoencoder::extract_features(float* d_in, float* h_out) {
     launch_maxpool2x2_forward(d_act2, d_latent, d_pool2_idx, 128, 16, 16);
     CHECK(cudaDeviceSynchronize());
 
-    // Copy to CPU
     size_t latent_size = 128 * 8 * 8 * sizeof(float);
     CHECK(cudaMemcpy(h_out, d_latent, latent_size, cudaMemcpyDeviceToHost));
 }
 
-// --------------------------------------------------------------------------
-// CLEANUP
-// --------------------------------------------------------------------------
 
+// CLEANUP
 void GPUAutoencoder::free_all() {
     auto free_ptr = [](float*& ptr) { if(ptr) { cudaFree(ptr); ptr = nullptr; } };
     auto free_int = [](int*& ptr)   { if(ptr) { cudaFree(ptr); ptr = nullptr; } };
@@ -416,7 +387,6 @@ void GPUAutoencoder::free_all() {
     free_ptr(d_dec_act1); free_ptr(d_up1); free_ptr(d_dec_act2);
     free_ptr(d_up2);   free_ptr(d_out);
 
-    // <--- UPDATE: Giải phóng d_loss_accum
     free_ptr(d_loss_accum);
 
     free_int(d_pool1_idx); free_int(d_pool2_idx);

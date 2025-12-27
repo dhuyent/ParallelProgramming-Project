@@ -1,4 +1,3 @@
-// kernels.cu - forward and backward naive kernels + wrappers
 #include "kernels.cuh"
 #include "gpu_autoencoder.cuh"
 #include <cuda_runtime.h>
@@ -6,8 +5,7 @@
 #include <cstdio>
 #include <cmath>
 
-// ---------------- Forward kernels ----------------
-
+//  Forward kernels 
 __global__ void conv2d_forward_naive_kernel(const float* __restrict__ input,
                                             const float* __restrict__ weights,
                                             const float* __restrict__ bias,
@@ -125,9 +123,7 @@ __global__ void mse_loss_and_grad_kernel(const float* pred, const float* target,
     if (tid == 0) atomicAdd(loss_accum, ssum[0]);
 }
 
-// ---------------- Backward kernels ----------------
-
-// ReLU backward: grad_in = grad_out * (act > 0)
+//  Backward kernels 
 __global__ void relu_backward_kernel(const float* grad_out, const float* act, float* grad_in, int N) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N) {
@@ -135,7 +131,6 @@ __global__ void relu_backward_kernel(const float* grad_out, const float* act, fl
     }
 }
 
-// Maxpool 2x2 backward: place grad_out back to grad_in according to max_idx
 __global__ void maxpool2x2_backward_kernel(const float* grad_out, float* grad_in, const int* max_idx,
                                            int C, int H, int W)
 {
@@ -159,11 +154,9 @@ __global__ void maxpool2x2_backward_kernel(const float* grad_out, float* grad_in
     int ih = h0 + dh;
     int iw = w0 + dw;
     int inIdx = inBase + ih * W + iw;
-    // grad_in location is unique for this out element, atomic not necessary but safe
     atomicAdd(&grad_in[inIdx], grad_out[idx]);
 }
 
-// Upsample backward: sum 2x2 block from grad_out into grad_in
 __global__ void upsample_backward_kernel(const float* grad_out, float* grad_in, int inC, int inH, int inW) {
     int inIdx = blockIdx.x * blockDim.x + threadIdx.x;
     int totalIn = inC * inH * inW;
@@ -184,8 +177,6 @@ __global__ void upsample_backward_kernel(const float* grad_out, float* grad_in, 
     grad_in[inIdx] = acc;
 }
 
-// Conv weight grad: each thread handles one weight index (oc,ic,kh,kw) and loops over spatial to accumulate
-// **atomicAdd** to grad_weights because kernel may be called concurrently for multiple samples.
 __global__ void conv2d_weight_grad_naive_kernel(const float* input, const float* grad_out,
                                                 float* grad_weights, float* grad_bias,
                                                 int inC, int inH, int inW, int outC, int k)
@@ -193,14 +184,12 @@ __global__ void conv2d_weight_grad_naive_kernel(const float* input, const float*
     int totalW = outC * inC * k * k;
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= totalW) {
-        // compute bias accumulation for a separate range: handled below
         return;
     }
     int tmp = idx;
     int kw = tmp % k; tmp /= k;
     int kh = tmp % k; 
-    tmp /= k; // careful: previous line bug-prone; easier recompute cleanly below
-    // Recompute properly:
+    tmp /= k; 
     tmp = idx;
     kw = tmp % k; tmp /= k;
     kh = tmp % k; tmp /= k;
@@ -222,12 +211,8 @@ __global__ void conv2d_weight_grad_naive_kernel(const float* input, const float*
         }
     }
     atomicAdd(&grad_weights[idx], acc);
-
-    // compute bias contributions for oc threads (we'll let first outC threads compute bias to avoid extra kernel)
-    // but simpler: have separate kernel below to accumulate bias.
 }
 
-// Simpler bias accumulation kernel: each thread per oc
 __global__ void conv2d_bias_grad_kernel(const float* grad_out, float* grad_bias, int outC, int H, int W) {
     int oc = blockIdx.x * blockDim.x + threadIdx.x;
     if (oc >= outC) return;
@@ -238,7 +223,6 @@ __global__ void conv2d_bias_grad_kernel(const float* grad_out, float* grad_bias,
     atomicAdd(&grad_bias[oc], acc);
 }
 
-// Conv input grad: each thread computes one input pixel (ic, h, w)
 __global__ void conv2d_input_grad_naive_kernel(const float* grad_out, const float* weights,
                                                float* grad_input,
                                                int inC, int inH, int inW, int outC, int k)
@@ -269,7 +253,6 @@ __global__ void conv2d_input_grad_naive_kernel(const float* grad_out, const floa
     grad_input[inIdx] = acc;
 }
 
-// Update weights on device: w[idx] -= lr * (g[idx] / batch_size); then zero g[idx]
 __global__ void update_weights_on_device_kernel(float* weights, float* grads, int N, float lr, int batch_size) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
@@ -361,7 +344,6 @@ void launch_conv2d_weight_grad_naive(const float* input, const float* grad_out,
     int gridW = (totalW + block - 1) / block;
     conv2d_weight_grad_naive_kernel<<<gridW, block>>>(input, grad_out, grad_weights, grad_bias, inC, inH, inW, outC, k);
     CHECK(cudaGetLastError());
-    // bias grads
     int gridB = (outC + block - 1) / block;
     conv2d_bias_grad_kernel<<<gridB, block>>>(grad_out, grad_bias, outC, inH, inW);
     CHECK(cudaGetLastError());
