@@ -109,7 +109,7 @@ Project được chia thành 3 phases. Dưới đây là lệnh biên dịch cho
 
 - **Thực thi:**
 ```bash
-./run_phase3 ./data/cifar-10-batches-bin
+./run_phase3
 ```
 
 ### 4. Kết quả mong đợi
